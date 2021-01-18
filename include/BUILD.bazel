@@ -1,0 +1,5 @@
+cc_library(
+    name = "cpu_timer",
+    hdrs = glob(["*.hpp"]),
+    visibility = ["//visibility:public"],
+)
