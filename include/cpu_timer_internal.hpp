@@ -1,9 +1,10 @@
-#include <string>
+#include "util.hpp"
 #include <deque>
-#include <ostream>
-#include <unordered_map>
 #include <list>
 #include <mutex>
+#include <ostream>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace cpu_timer {
@@ -37,6 +38,10 @@ namespace cpu_timer {
 			, caller{caller_}
 			, _is_started{false}
 			, _is_stopped{false}
+			, start_cpu{}
+			, stop_cpu{}
+			, start_wall{}
+			, stop_wall{}
 		{ }
 		void start_timer() {
 			assert(!_is_started);
@@ -70,7 +75,7 @@ namespace cpu_timer {
 				<< thread_id << ","
 				<< frame_id << ","
 				<< function_id << ","
-				<< (caller ? caller->frame_id : 0) << ","
+				<< (caller != nullptr ? caller->frame_id : 0) << ","
 				<< myclock::get_nanoseconds(start_cpu) << ","
 				<< myclock::get_nanoseconds(stop_cpu - start_cpu) << ","
 				<< myclock::get_nanoseconds(start_wall - process_start) << ","
@@ -95,7 +100,7 @@ namespace cpu_timer {
 		std::mutex mutex;
 
 	public:
-		Stack(ThreadId thread_id_)
+		explicit Stack(ThreadId thread_id_)
 			: thread_id{thread_id_}
 			, first_unused_frame_id{0}
 		{
@@ -170,7 +175,7 @@ namespace cpu_timer {
 		std::list<Stack> threads;
 		std::mutex proc_mutex;
 	public:
-		Process(myclock::WallTime start_time_)
+		explicit Process(myclock::WallTime start_time_)
 			: start_time{start_time_}
 		{ }
 		myclock::WallTime get_start_time() { return start_time; }
@@ -212,4 +217,4 @@ namespace cpu_timer {
 			thread.exit_stack_frame(site_name);
 		}
 	};
-}
+} // namespace cpu_timer

@@ -1,3 +1,4 @@
+#pragma once
 #include <string>
 #include <random>
 #include <atomic>
@@ -19,8 +20,8 @@ namespace util {
 	 * @brief if var is env-var return it, else default_
 	 */
 	static std::string
-	getenv_or(std::string var, std::string default_) {
-		if (std::getenv(var.c_str())) {
+	getenv_or(const std::string& var, std::string default_) {
+		if (std::getenv(var.c_str()) != nullptr) {
 			return {std::getenv(var.c_str())};
 		} else {
 			return default_;
@@ -44,4 +45,4 @@ namespace util {
 			return val;
 		}
 	}
-}
+} // namespace util

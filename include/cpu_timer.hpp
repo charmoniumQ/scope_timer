@@ -1,3 +1,5 @@
+#pragma once
+
 /**
  * @brief This is the cpu_timer.
  *
@@ -36,12 +38,12 @@
  * - Make util headers not exported.
  */
 
-#include "util.hpp"
 #include "clock.hpp"
 #include "cpu_timer_internal.hpp"
 #include "filesystem.hpp"
-#include <iostream>
+#include "util.hpp"
 #include <fstream>
+#include <iostream>
 
 namespace cpu_timer {
 	/*
@@ -52,7 +54,7 @@ namespace cpu_timer {
 
 	class GlobalState {
 	private:
-		bool is_enabled_var;
+		bool is_enabled_var {initialize_is_enabled()};
 		filesystem::path output_dir;
 		Process process;
 		thread_local static Stack* current_thread;
@@ -64,21 +66,7 @@ namespace cpu_timer {
 			return std::chrono::nanoseconds{0};
 		}
 		static bool initialize_is_enabled() {
-			if (!!std::stoi(util::getenv_or("CPU_TIMER_ENABLE", "0"))) {
-#ifdef CPU_TIMER_DISABLE
-				// TODO: find a library for colors.
-				std::cerr <<
-					"\e[0;31m[WARNING] "
-					"You set CPU_TIMER_ENABLE=1 at runtime, but defined CPU_TIMER_DISABLE at compile-time. "
-					"cpu_timer3 remains disabled.\e[0m\n"
-					;
-				return false;
-#else
-				return true;
-#endif
-			} else {
-				return false;
-			}
+			return std::stoi(util::getenv_or("CPU_TIMER_ENABLE", "0")) != 0;
 		}
 	public:
 		void initialize() {
@@ -90,9 +78,8 @@ namespace cpu_timer {
 			// start_time_ofile << start_time_int;
 		}
 		GlobalState()
-			: is_enabled_var{initialize_is_enabled()}
-			  // TODO: disable the following constructor
-			, output_dir{util::getenv_or("CPU_TIMER3_PATH", ".cpu_timer3")}
+			// TODO(sam): disable the following constructor
+			: output_dir{util::getenv_or("CPU_TIMER3_PATH", ".cpu_timer3")}
 			, process{set_or_lookup_start_time(output_dir)}
 		{ }
 		~GlobalState() {
@@ -100,8 +87,10 @@ namespace cpu_timer {
 				serialize();
 			}
 		}
+		GlobalState(const GlobalState& other) = delete;
+		GlobalState& operator=(const GlobalState& other) = delete;
 		filesystem::path serialize() {
-			filesystem::path output_file_path {output_dir / util::random_hex_string() + std::string{"_data.csv"}};
+			filesystem::path output_file_path {output_dir / filesystem::path{util::random_hex_string() + std::string{"_data.csv"}}};
 			std::ofstream output_file {output_file_path.string()};
 			assert(output_file.good());
 			output_file
@@ -113,13 +102,14 @@ namespace cpu_timer {
 			return output_file_path;
 		}
 		Stack& get_current_stack() {
-			return *(current_thread ? current_thread : (current_thread = make_stack()));
+			return *(current_thread != nullptr ? current_thread : (current_thread = make_stack()));
 		}
-		void set_current_stack(Stack& other) { current_thread = &other; }
+		void static set_current_stack(Stack& other) { current_thread = &other; }
 		Stack* make_stack() { return process.make_stack(); }
-		bool is_enabled() { return is_enabled_var; }
+		bool is_enabled() const { return is_enabled_var; }
 	};
 
 	static GlobalState __state;
-}
-int foo() { return 532; }
+} // namespace cpu_timer
+
+inline int foo() { return 0; }

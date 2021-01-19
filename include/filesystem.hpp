@@ -1,9 +1,9 @@
 #pragma once
 #include <cerrno>
-#include <string>
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <dirent.h>
+#include <string>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 /**
@@ -12,8 +12,8 @@
  * I take no joy in supporting antiquated systems.
  */
 namespace filesystem {
-	bool bool_unlikely(bool x) { return x; }
-	bool bool_likely(bool x) { return x; }
+	static inline bool bool_unlikely(bool x) { return x; }
+	static inline bool bool_likely(bool x) { return x; }
 
 	/**
 	 * @brief Replace all instances of @p from to @p to in @p str
@@ -49,11 +49,11 @@ namespace filesystem {
 
 	class path {
 	public:
-		typedef char value_type;
-		typedef std::basic_string<value_type> string_type;
-		path(const value_type* val_) : val{val_} { replace_all(val, "/", "\\/"); }
-		path(string_type&& val_) : val{std::move(val_)} { replace_all(val, "/", "\\/"); }
-		path(const string_type& val_) : val{std::move(val_)} { replace_all(val, "/", "\\/"); }
+		using value_type = char;
+		using string_type = std::basic_string<value_type>;
+		explicit path(const value_type* val_) : val{val_} { replace_all(val, "/", "\\/"); }
+		explicit path(string_type&& val_) : val{std::move(val_)} { replace_all(val, "/", "\\/"); }
+		explicit path(const string_type& val_) : val{std::move(val_)} { replace_all(val, "/", "\\/"); }
 		path operator/(path other_path) const { return {val + "/" + other_path.val, true}; }
 		path operator+(path other_path) const { return {val + other_path.val, true}; }
 		const char* c_str() const { return val.c_str(); }
@@ -86,11 +86,11 @@ namespace filesystem {
 		bool _is_directory;
 		bool _exists;
 	public:
-		directory_entry(const path& this_path_, std::error_code ec) : this_path{this_path_} { refresh(ec); }
-		directory_entry(const path& this_path_) : this_path{this_path_} { refresh(); }
+		directory_entry(path this_path_, std::error_code ec) : this_path{std::move(this_path_)} { refresh(ec); }
+		directory_entry(path this_path_) : this_path{std::move(this_path_)} { refresh(); }
 		void refresh(std::error_code& ec) {
 			assert(errno == 0);
-			struct stat buf;
+			struct stat buf {};
 #ifdef FILESYSTEM_DEBUG
 			std::cerr << "stat " << this_path.string() << "\n";
 #endif
@@ -117,29 +117,29 @@ namespace filesystem {
 		}
 		path path() const { return this_path; }
 		bool is_directory() const { return _is_directory; }
-		bool exists() { return _exists; }
+		bool exists() const { return _exists; }
 	};
 
 	class directory_iterator {
 	private:
 		std::deque<directory_entry> dir_entries;
 	public:
-		directory_iterator(const path& dir_path) {
+		explicit directory_iterator(const path& dir_path) {
 			assert(errno == 0);
 #ifdef FILESYSTEM_DEBUG
 			std::cerr << "ls " << dir_path.string() << "\n";
 #endif
 			DIR* dir = opendir(dir_path.c_str());
-			if (bool_likely(dir)) {
+			if (bool_likely(dir != nullptr)) {
 				assert(errno == 0);
 				struct dirent* dir_entry = readdir(dir);
-				while (bool_likely(dir_entry)) {
+				while (bool_likely(dir_entry != nullptr)) {
 					bool skip = strcmp(dir_entry->d_name, ".") == 0 || strcmp(dir_entry->d_name, "..") == 0;
 #ifdef FILESYSTEM_DEBUG
 					std::cerr << "ls " << dir_path.string() << " -> " << dir_entry->d_name << " skip=" << skip << "\n";
 #endif
 					if (!skip) {
-						dir_entries.emplace_back(dir_path / std::string{dir_entry->d_name});
+						dir_entries.emplace_back(dir_path / path{std::string{dir_entry->d_name}});
 					}
 					assert(errno == 0);
 					dir_entry = readdir(dir);
@@ -148,7 +148,7 @@ namespace filesystem {
 					int errno_ = errno; errno = 0;
 					throw filesystem_error{std::string{"readdir"}, dir_path, errno_};
 				}
-				if (bool_unlikely(closedir(dir))) {
+				if (bool_unlikely(closedir(dir) != 0)) {
 					int errno_ = errno; errno = 0;
 					throw filesystem_error{std::string{"closedir"}, dir_path, errno_};
 				}
@@ -168,16 +168,15 @@ namespace filesystem {
 					}
 				}
 				return true;
-			} else {
-				return false;
 			}
+			return false;
 		}
 		bool operator!=(const directory_iterator& other) { return !(*this == other); }
-		typedef directory_entry value_type;
-		typedef std::ptrdiff_t difference_type;
-		typedef const directory_entry* pointer;
-		typedef const directory_entry& reference;
-		typedef std::input_iterator_tag iterator_category;
+		using value_type = directory_entry;
+		using difference_type = std::ptrdiff_t;
+		using pointer = const directory_entry*;
+		using reference = const directory_entry&;
+		using iterator_category = std::input_iterator_tag;
 		reference operator*() { assert(!dir_entries.empty()); return dir_entries.back(); }
 		reference operator->() { return **this; }
 		directory_iterator& operator++() {
@@ -185,7 +184,7 @@ namespace filesystem {
 			dir_entries.pop_back();
 			return *this;
 		}
-		directory_iterator operator++(int) {
+		const directory_iterator operator++(int) {
 			auto ret = *this;
 			++*this;
 			return ret;
@@ -236,7 +235,7 @@ namespace filesystem {
 #ifdef FILESYSTEM_DEBUG
 				std::cerr << "unlink " << descendent.path().string() << "\n";
 #endif
-				if (bool_unlikely(unlink(descendent.path().c_str()))) {
+				if (bool_unlikely(unlink(descendent.path().c_str()) != 0)) {
 					int errno_ = errno; errno = 0;
 					throw filesystem_error(std::string{"unlink"}, descendent.path(), errno_);
 				}
@@ -265,4 +264,4 @@ namespace filesystem {
 		return false;
 	}
 
-}
+} // namespace filesystem
