@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <deque>
 #include <mutex>
+#include <ostream>
 #include <unordered_map>
 
 using Frame = cpu_timer::StackFrame;
@@ -15,10 +16,11 @@ void trace1() {
 	trace2();
 }
 
-void verify_thread_main(const Frames&, const Frame&) {
-	// EXPECT_EQ(0, frame.get_caller_start_index());
-	// EXPECT_EQ(1, frame.get_start_index());
-	// EXPECT_EQ(trace.size() - 1, frame.get_stop_index());
+void verify_thread_main(const Frames& trace, const Frame& frame) {
+	EXPECT_EQ(0, frame.get_caller_start_index());
+	EXPECT_EQ(0, frame.get_start_index());
+	EXPECT_EQ(trace.size() - 1, frame.get_stop_index());
+	EXPECT_EQ(std::string{"thread_main"}, frame.get_function_name());
 }
 
 void verify_tree(const Frames&) {
@@ -34,8 +36,8 @@ void verify_preorder(const Frames& trace) {
 	verify_thread_main(preorder_trace, preorder_trace.at(0));
 	for (size_t i = 0; i < preorder_trace.size(); ++i) {
 		auto frame = preorder_trace.at(i);
-		// All `start_index`es from 1..n should be used, so the sort should be "dense"
-		EXPECT_EQ(frame.get_start_index(), i+1);
+		// All `start_index`es from 0..n should be used, so the sort should be "dense"
+		EXPECT_EQ(frame.get_start_index(), i);
 
 		if (i > 0) {
 			auto prev_frame = preorder_trace.at(i-1);
@@ -61,8 +63,8 @@ void verify_postorder(const Frames& postorder_trace) {
 	for (size_t i = 0; i < postorder_trace.size(); ++i) {
 		auto frame = postorder_trace.at(i);
 
-		// All `start_index`es from 1..n should be used, so the sort should eb "dense"
-		EXPECT_EQ(frame.get_stop_index(), i+1);
+		// All `start_index`es from 0..n should be used, so the sort should eb "dense"
+		EXPECT_EQ(frame.get_stop_index(), i);
 
 		if (i > 0) {
 			auto prev_frame = postorder_trace.at(i-1);
@@ -88,6 +90,8 @@ void verify_trace1(const Frames& trace) {
 	EXPECT_EQ(1                    , trace.at(2).get_caller_start_index());
 	EXPECT_EQ(std::string{"trace1"}, trace.at(3).get_function_name());
 	EXPECT_EQ(0                    , trace.at(3).get_caller_start_index());
+	EXPECT_EQ(std::string{"thread_main"}, trace.at(4).get_function_name());
+	EXPECT_EQ(0                    , trace.at(4).get_caller_start_index());
 }
 
 void verify_trace3(Frames trace) {
@@ -98,6 +102,8 @@ void verify_trace3(Frames trace) {
 	EXPECT_EQ(1                    , trace.at(1).get_caller_start_index());
 	EXPECT_EQ(std::string{"trace3"}, trace.at(2).get_function_name());
 	EXPECT_EQ(0                    , trace.at(2).get_caller_start_index());
+	EXPECT_EQ(std::string{"thread_main"}, trace.at(3).get_function_name());
+	EXPECT_EQ(0                    , trace.at(3).get_caller_start_index());
 }
 
 void verify_general(const Frames& trace) {
@@ -106,57 +112,65 @@ void verify_general(const Frames& trace) {
 	verify_postorder(trace);
 }
 
+void err_callback(std::thread::id, Frames&&, const Frames&) {
+	ADD_FAILURE();
+}
+
 class Globals {
 public:
-	Globals() : main_thread{std::this_thread::get_id()}
-	{
-		cpu_timer::make_process(true, cpu_timer::CpuTime{0}, [](std::thread::id, Frames&&, const Frames&) {
-			ADD_FAILURE();
-		});
+	Globals() {
+		cpu_timer::make_process(true, cpu_timer::CpuTime{0}, &err_callback);
 	}
-	std::thread::id main_thread;
+	~Globals() {
+		cpu_timer::get_process().set_callback(cpu_timer::CallbackType{});
+	}
 };
 
 static Globals globals;
 
-void verify_any_trace(std::thread::id thread, const Frames& finished) {
-	verify_general(finished);
-	if (thread == globals.main_thread) {
-		verify_trace1(finished);
+void verify_any_trace(const Frames& trace) {
+	verify_general(trace);
+	if (trace.at(trace.size() - 2).get_function_name() == std::string{"trace1"}) {
+		verify_trace1(trace);
 	} else {
-		verify_trace3(finished);
+		verify_trace3(trace);
 	}
 }
 
 
 // NOLINTNEXTLINE(hicpp-special-member-functions,cppcoreguidelines-special-member-functions,cppcoreguidelines-owning-memory,cert-err58-cpp)
 TEST(CpuTimerTest, TraceCorrectBatched) {
-	ASSERT_TRUE(cpu_timer::get_process().empty());
-	cpu_timer::get_process().set_callback([=](std::thread::id thread, Frames&& finished, const Frames& stack) {
-		EXPECT_TRUE(stack.empty());
-		verify_any_trace(thread, finished);
+	cpu_timer::get_process().set_callback([=](std::thread::id, Frames&& finished, const Frames& stack) {
+		EXPECT_EQ(0, stack.size());
+		verify_any_trace(finished);
 	});
-	trace1();
-	EXPECT_TRUE(cpu_timer::get_process().empty());
+	std::thread th {trace1};
+	th.join();
 	cpu_timer::get_process().flush();
+	cpu_timer::get_process().set_callback(&err_callback);
 }
 
 TEST(CpuTimerTest, TraceCorrectUnbatched) {
-	ASSERT_TRUE(cpu_timer::get_process().empty());
 	std::mutex mutex;
 	std::unordered_map<std::thread::id, size_t> count;
 	std::unordered_map<std::thread::id, Frames> accumulated;
+	cpu_timer::get_process().set_log_period(cpu_timer::CpuTime{1});
 	cpu_timer::get_process().set_callback([&](std::thread::id thread, Frames&& finished, const Frames&) {
 		std::lock_guard<std::mutex> lock{mutex};
+		EXPECT_EQ(finished.size(), 1);
 		count[thread]++;
 		accumulated[thread].insert(accumulated[thread].end(), finished.cbegin(), finished.cend());
 	});
-	trace1();
-	EXPECT_TRUE(cpu_timer::get_process().empty());
+	std::thread th {trace1};
+	th.join();
+	cpu_timer::get_process().set_callback(&err_callback);
 
 	for (const auto& pair : accumulated) {
-		verify_any_trace(pair.first, pair.second);
+		verify_any_trace(pair.second);
+		if (pair.second.at(pair.second.size() - 2).get_function_name() == std::string{"trace1"}) {
+			EXPECT_EQ(count.at(pair.first), 5);
+		} else {
+			EXPECT_EQ(count.at(pair.first), 4);
+		}
 	}
-
-	EXPECT_EQ(count[globals.main_thread], 4);
 }

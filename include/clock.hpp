@@ -38,13 +38,13 @@ namespace detail {
 		return cpp_clock_gettime(CLOCK_MONOTONIC);
 	}
 
-	static size_t get_nanoseconds(CpuTime t) {
+	static size_t get_ns(CpuTime t) {
 		return t.count();
 	}
 
 	/*
 	  CpuTime and WallTime happen to be synonyms right now, so this is a duplicate definition.
-	static size_t get_nanoseconds(CpuTime t) {
+	static size_t get_ns(CpuTime t) {
 		return t.count();
 	}
 	*/

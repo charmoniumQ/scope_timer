@@ -1,4 +1,5 @@
 #pragma once // NOLINT(llvm-header-guard)
+#include "compiler_specific.hpp"
 #include "clock.hpp"
 #include "util.hpp"
 #include <cassert>
@@ -39,10 +40,9 @@ namespace detail {
 		friend class Stack;
 
 		void start_timer(size_t start_index_) {
-			assert(start_index == 0);
-			assert(stop_index == 0);
 			start_index = start_index_;
-			assert(start_index != 0);
+
+			assert(start_cpu == CpuTime{0} && "start_timer should only be called once");
 
 			// very last thing:
 			fence();
@@ -51,16 +51,15 @@ namespace detail {
 			fence();
 		}
 		void stop_timer(size_t stop_index_) {
-			// very first thing:
+			assert(stop_cpu == CpuTime{0} && "stop_timer should only be called once");
+			// almost very first thing:
 			fence();
 			stop_wall = wall_now();
 			stop_cpu = cpu_now();
 			fence();
 
-			assert(start_index != 0);
-			assert(stop_index == 0);
+			assert(start_cpu != CpuTime{0} && "stop_timer should be called after start_timer");
 			stop_index = stop_index_;
-			assert(stop_index != 0);
 		}
 
 	public:
@@ -135,6 +134,14 @@ namespace detail {
 		size_t get_stop_index() const { return stop_index; }
 	};
 
+	CPU_TIMER_UNUSED static std::ostream& operator<<(std::ostream& os, const StackFrame& frame) {
+		return os
+			<< frame.get_file_name() << ":" << frame.get_line() << ":" << frame.get_function_name() << " called by " << frame.get_caller_start_index() << "\n"
+			<< " cpu   : " << get_ns(frame.get_start_cpu  ()) << " + " << get_ns(frame.get_stop_cpu  () - frame.get_start_cpu  ()) << "\n"
+			<< " wall  : " << get_ns(frame.get_start_wall ()) << " + " << get_ns(frame.get_stop_wall () - frame.get_start_wall ()) << "\n"
+			<< " started: " << frame.get_start_index() << " stopped: " << frame.get_stop_index() << "\n";
+			;
+	}
 
 	class Process;
 
@@ -145,6 +152,7 @@ namespace detail {
 		friend class Process;
 		friend class StackFrameContext;
 
+		static constexpr const char* const thread_main = "thread_main";
 		const std::thread::id thread_id;
 		const bool is_enabled;
 		const WallTime process_start;
@@ -155,28 +163,7 @@ namespace detail {
 		std::deque<StackFrame> stack;
 		std::deque<StackFrame> finished;
 		CpuTime last_log;
-
-		void maybe_call_callback() {
-			if (get_nanoseconds(log_period) != 0 && !finished.empty() && finished.back().get_stop_cpu() > last_log + log_period) {
-				call_callback();
-			}
-		}
-
-		void call_callback() {
-			if (callback) {
-				std::deque<StackFrame> finished_buffer;
-				// NOT an atomic swap
-				// But call_callback happens in the same thread as {exit|enter}_stack_frame.
-				finished.swap(finished_buffer);
-				callback(thread_id, std::move(finished_buffer), stack);
-			}
-		}
-
-		bool empty() const {
-			return stack.empty();
-			// I don't care about finished,
-			// since finished will be cleared on destruction anyway.
-		}
+		std::mutex finished_mutex;
 
 	public:
 
@@ -189,15 +176,36 @@ namespace detail {
 			, start_index{0}
 			, stop_index{0}
 			, last_log{0}
-		{ }
+		{
+			enter_stack_frame("", thread_main, thread_main, 0);
+		}
 
 		~Stack() {
-			assert(stack.empty());
+			exit_stack_frame(thread_main);
+			assert(stack.empty() && "somewhow enter_stack_frame was called more times than exit_stack_frame");
 			if (!finished.empty()) {
-				call_callback();
-				assert(finished.empty());
+				flush();
+				assert(finished.empty() && "flush() should drain this buffer, and nobody should be adding to it now");
 			}
 		}
+
+		// I do stuff in the destructor that should only happen once per constructor-call.
+		Stack(const Stack& other) = delete;
+		Stack& operator=(const Stack& other) = delete;
+
+		Stack(Stack&& other) noexcept
+			: thread_id{({std::cerr << "Stack::Stack(Stack&&)" << std::endl; other.thread_id;})}
+			, is_enabled{other.is_enabled}
+			, process_start{other.process_start}
+			, log_period{other.log_period}
+			, callback{other.callback}
+			, start_index{other.start_index}
+			, stop_index{other.stop_index}
+			, stack{std::move(other.stack)}
+			, finished{std::move(other.finished)}
+			, last_log{other.last_log}
+		{ }
+		Stack& operator=(Stack&& other) = delete;
 
 		void enter_stack_frame(std::string&& comment, const char* function_name, const char* file_name, size_t line) {
 			stack.emplace_back(
@@ -210,39 +218,47 @@ namespace detail {
 			);
 
 			// very last:
-			stack.back().start_timer(++start_index);
+			stack.back().start_timer(start_index++);
 		}
 
-		void exit_stack_frame([[maybe_unused]] const char* function_name) {
-			assert(!stack.empty());
+		void exit_stack_frame(CPU_TIMER_UNUSED const char* function_name) {
+			assert(!stack.empty() && "somehow exit_stack_frame was called more times than enter_stack_frame");
 
 			// (almost) very first:
-			stack.back().stop_timer(++stop_index);
+			stack.back().stop_timer(stop_index++);
 
-			assert(function_name == stack.back().get_function_name());
-			finished.emplace_back(stack.back());
+			assert(function_name == stack.back().get_function_name() && "somehow enter_stack_frame and exit_stack_frame for this frame are misaligned");
+			{
+				std::lock_guard<std::mutex> finished_lock {finished_mutex};
+				finished.emplace_back(stack.back());
+			}
 			stack.pop_back();
 
-			maybe_call_callback();
+			maybe_flush();
 		}
 
-		// I do stuff in the destructor that should only happen once per constructor-call.
-		Stack(const Stack& other) = delete;
-		Stack& operator=(const Stack& other) = delete;
+		void flush() {
+			if (callback) {
+				std::lock_guard<std::mutex> finished_lock {finished_mutex};
+				std::deque<StackFrame> finished_buffer;
+				finished.swap(finished_buffer);
+				callback(thread_id, std::move(finished_buffer), stack);
+			}
+		}
 
-		Stack(Stack&& other) noexcept
-			: thread_id{other.thread_id}
-			, is_enabled{other.is_enabled}
-			, process_start{other.process_start}
-			, log_period{other.log_period}
-			, callback{other.callback}
-			, start_index{other.start_index}
-			, stop_index{other.stop_index}
-			, stack{std::move(other.stack)}
-			, finished{std::move(other.finished)}
-			, last_log{other.last_log}
-		{ }
-		Stack& operator=(Stack&& other) = delete;
+	private:
+		void maybe_flush() {
+			bool finished_empty {false};
+			CpuTime now {0};
+			{
+				std::lock_guard<std::mutex> finished_lock {finished_mutex};
+				finished_empty = finished.empty();
+				now = finished.back().get_stop_cpu();
+			}
+			if (get_ns(log_period) != 0 && !finished_empty && now > last_log + log_period) {
+				flush();
+			}
+		}
 	};
 
 	/**
@@ -267,38 +283,26 @@ namespace detail {
 			, callback{std::move(callback_)}
 		{ }
 
-		/**
-		 * @brief Creates or looks up the stack for thread @p id.
-		 */
-		Stack& get_stack(std::thread::id id) {
+		Stack& create_stack(std::thread::id id) {
 			std::lock_guard<std::mutex> thread_to_stack_lock {thread_to_stack_mutex};
-			thread_to_stack.emplace(std::piecewise_construct, std::forward_as_tuple(id), std::forward_as_tuple(id, is_enabled, start, log_period, callback));
+			// A thread could be created twice if it crosses into an object file with its own static thread_local constructor.
+			// assert(thread_to_stack.count(id) == 0);
+			if (thread_to_stack.count(id) == 0) {
+				thread_to_stack.emplace(std::piecewise_construct, std::forward_as_tuple(id), std::forward_as_tuple(id, is_enabled, start, log_period, callback));
+			}
 			return thread_to_stack.at(id);
 		}
 
 		/**
-		 * @brief If the stack has a thread with incomplete frames.
+		 * @brief Call when a thread is disposed.
 		 *
-		 * If any of the threads are still live, thsi should be non-empty, since the thread's top-level has a frame.
+		 * This is neccessary because the OS can reuse old thread IDs.
 		 */
-		bool empty() const {
+		void remove_stack(std::thread::id id) {
 			std::lock_guard<std::mutex> thread_to_stack_lock {thread_to_stack_mutex};
-			for (const auto& pair : thread_to_stack) {
-				if (!pair.second.empty()) {
-					return false;
-				}
+			if (thread_to_stack.count(id) != 0) {
+				thread_to_stack.erase(id);
 			}
-			return true;
-		}
-
-		/**
-		 * @brief Flush all data and forget all threads.
-		 *
-		 * This is only valid if the threads are @p empty().
-		 */
-		void flush() {
-			std::lock_guard<std::mutex> thread_to_stack_lock {thread_to_stack_mutex};
-			thread_to_stack.clear();
 		}
 
 		/**
@@ -326,6 +330,16 @@ namespace detail {
 		 */
 		void set_callback(CallbackType callback_) {
 			callback = std::move(callback_);
+		}
+
+		/**
+		 * @brief Flush all finished frames
+		 */
+		void flush() {
+			std::lock_guard<std::mutex> thread_to_stack_lock {thread_to_stack_mutex};
+			for (auto& pair : thread_to_stack) {
+				pair.second.flush();
+			}
 		}
 
 		// get_stack() returns pointers into this, so it should not be copied or moved.
