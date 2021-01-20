@@ -60,6 +60,7 @@ namespace cpu_timer {
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define CPU_TIMER_TIME_BLOCK_COMMENT(comment, block_name) const auto CPU_TIMER_DETAIL_TOKENPASTE(cpu_timer_, __LINE__) = cpu_timer::detail::StackFrameContext::create(cpu_timer::detail::tls.get_stack(), comment, block_name, __FILE__, __LINE__);
 #else
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define CPU_TIMER_TIME_BLOCK_COMMENT(comment, block_name) const cpu_timer::detail::StackFrameContext CPU_TIMER_DETAIL_TOKENPASTE(cpu_timer_, __LINE__) {cpu_timer::detail::tls.get_stack(), comment, block_name, __FILE__, __LINE__};
 #endif
 #endif

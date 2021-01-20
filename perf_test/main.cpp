@@ -3,7 +3,7 @@
 #include <stdexcept>
 #include <thread>
 
-static void exec_in_thread(std::function<void()> fn) {
+static void exec_in_thread(const std::function<void()>& fn) {
 	std::thread th {fn};
 	th.join();
 }
@@ -11,6 +11,7 @@ static void exec_in_thread(std::function<void()> fn) {
 constexpr size_t PAYLOAD_ITERATIONS = 1024;
 static void noop() {
 	for (size_t i = 0; i < PAYLOAD_ITERATIONS; ++i) {
+		// NOLINTNEXTLINE(hicpp-no-assembler)
 		asm ("" : /* ins */ : /* outs */ : "memory");
 	}
 }
@@ -49,15 +50,14 @@ int main() {
 
 	constexpr uint64_t TRIALS = 1024 * 32;
 
-	uint64_t
-		time_none = 0,
-		time_rt_disabled = 0,
-		time_logging = 0,
-		time_batched_cb = 0,
-		time_unbatched = 0,
-		time_thready = 0,
-		time_thready_logging = 0,
-		time_check_clocks = 0;
+	uint64_t time_none = 0;
+	uint64_t time_rt_disabled = 0;
+	uint64_t time_logging = 0;
+	uint64_t time_batched_cb = 0;
+	uint64_t time_unbatched = 0;
+	uint64_t time_thready = 0;
+	uint64_t time_thready_logging = 0;
+	uint64_t time_check_clocks = 0;
 
 	exec_in_thread([&] {
 		auto start = cpu_timer::detail::wall_now();
