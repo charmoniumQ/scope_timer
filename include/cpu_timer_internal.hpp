@@ -1,6 +1,6 @@
 #pragma once // NOLINT(llvm-header-guard)
-#include "compiler_specific.hpp"
 #include "clock.hpp"
+#include "compiler_specific.hpp"
 #include "util.hpp"
 #include <cassert>
 #include <deque>

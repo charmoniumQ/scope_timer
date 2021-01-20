@@ -118,12 +118,16 @@ void err_callback(std::thread::id, Frames&&, const Frames&) {
 
 class Globals {
 public:
-	Globals() {
+	Globals() noexcept {
 		cpu_timer::make_process(true, cpu_timer::CpuTime{0}, &err_callback);
 	}
 	~Globals() {
 		cpu_timer::get_process().set_callback(cpu_timer::CallbackType{});
 	}
+	Globals(const Globals&) = delete;
+	Globals& operator=(const Globals&) = delete;
+	Globals(const Globals&&) = delete;
+	Globals& operator=(const Globals&&) = delete;
 };
 
 static Globals globals;
@@ -150,6 +154,7 @@ TEST(CpuTimerTest, TraceCorrectBatched) {
 	cpu_timer::get_process().set_callback(&err_callback);
 }
 
+// NOLINTNEXTLINE(hicpp-special-member-functions,cppcoreguidelines-special-member-functions,cppcoreguidelines-owning-memory,cert-err58-cpp)
 TEST(CpuTimerTest, TraceCorrectUnbatched) {
 	std::mutex mutex;
 	std::unordered_map<std::thread::id, size_t> count;
