@@ -172,7 +172,7 @@ namespace detail {
 				function_name,
 				file_name,
 				line,
-				(stack.empty() ? 0 : stack.back().get_start_index()),
+				(CPU_TIMER_UNLIKELY(stack.empty()) ? 0 : stack.back().get_start_index()),
 				process_start
 			);
 
@@ -188,7 +188,7 @@ namespace detail {
 
 			assert(function_name == stack.back().get_function_name() && "somehow enter_stack_frame and exit_stack_frame for this frame are misaligned");
 			{
-				std::lock_guard<std::mutex> finished_lock {finished_mutex};
+				// std::lock_guard<std::mutex> finished_lock {finished_mutex};
 				finished.emplace_back(stack.back());
 			}
 			stack.pop_back();
@@ -240,29 +240,29 @@ namespace detail {
 		 * @brief Calls callback on a batch containing all completed records, if any.
 		 */
 		void flush() {
-			if (callback) {
-				std::lock_guard<std::mutex> finished_lock {finished_mutex};
-				if (!finished.empty()) {
-					std::deque<StackFrame> finished_buffer;
-					finished.swap(finished_buffer);
-					callback(*this, std::move(finished_buffer), stack);
-				}
-			}
+			std::lock_guard<std::mutex> finished_lock {finished_mutex};
+			flush_with_lock();
 		}
 
 		std::thread::id get_thread_id() const { return thread_id; }
 
 	private:
 		void maybe_flush() {
-			bool finished_empty {false};
-			CpuTime now {0};
-			{
+			if (get_ns(log_period) != 0) {
 				std::lock_guard<std::mutex> finished_lock {finished_mutex};
-				finished_empty = finished.empty();
-				now = finished.back().get_stop_cpu();
+				if (finished.back().get_stop_cpu() > last_log + log_period) {
+					flush_with_lock();
+				}
 			}
-			if (get_ns(log_period) != 0 && !finished_empty && now > last_log + log_period) {
-				flush();
+		}
+
+		void flush_with_lock() {
+			if (callback) {
+				if (!finished.empty()) {
+					std::deque<StackFrame> finished_buffer;
+					finished.swap(finished_buffer);
+					callback(*this, std::move(finished_buffer), stack);
+				}
 			}
 		}
 	};
@@ -371,10 +371,26 @@ namespace detail {
 			: stack{stack_}
 			, function_name{function_name_}
 		{
-			if (stack.is_enabled) {
+#if !defined(CPU_TIMER_USE_UNIQUE_PTR)
+			if (stack.is_enabled)
+#endif
+			{
 				stack.enter_stack_frame(std::move(comment), function_name, file_name, line);
 			}
 		}
+
+#if defined(CPU_TIMER_USE_UNIQUE_PTR)
+		/**
+		 * @brief Begins a new RAII context for a StackFrame in Stack, if enabled.
+		 */
+		static std::unique_ptr<const StackFrameContext> create(Stack& stack, std::string&& comment, const char* function_name, const char* file_name, size_t line) {
+			if (stack.is_enabled) {
+				return std::unique_ptr<const StackFrameContext>{new StackFrameContext{stack, std::move(comment), function_name, file_name, line}};
+			} else {
+				return std::unique_ptr<const StackFrameContext>{nullptr};
+			}
+		}
+#endif
 
 		/*
 		 * I have a custom destructor, and should there be a copy, the destructor will run twice, and double-count the frame.
@@ -391,7 +407,10 @@ namespace detail {
 		 * @brief Completes the StackFrame in Stack.
 		 */
 		~StackFrameContext() {
-			if (stack.is_enabled) {
+#if !defined(CPU_TIMER_USE_UNIQUE_PTR)
+			if (stack.is_enabled)
+#endif
+			{
 				stack.exit_stack_frame(function_name);
 			}
 		}

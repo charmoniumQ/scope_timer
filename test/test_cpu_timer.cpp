@@ -117,7 +117,7 @@ void err_callback(const cpu_timer::Stack&, Frames&&, const Frames&) {
 class Globals {
 public:
 	Globals() noexcept {
-		cpu_timer::make_process(true, cpu_timer::CpuTime{0}, &err_callback);
+		cpu_timer::make_process(true, cpu_timer::CpuNs{0}, &err_callback);
 	}
 	~Globals() {
 		cpu_timer::get_process().set_callback(cpu_timer::CallbackType{});
@@ -157,7 +157,7 @@ TEST(CpuTimerTest, TraceCorrectUnbatched) {
 	std::mutex mutex;
 	std::unordered_map<std::thread::id, size_t> count;
 	std::unordered_map<std::thread::id, Frames> accumulated;
-	cpu_timer::get_process().set_log_period(cpu_timer::CpuTime{1});
+	cpu_timer::get_process().set_log_period(cpu_timer::CpuNs{1});
 	cpu_timer::get_process().set_callback([&](const cpu_timer::Stack& stack, Frames&& finished, const Frames&) {
 		auto thread = stack.get_thread_id();
 		std::lock_guard<std::mutex> lock{mutex};

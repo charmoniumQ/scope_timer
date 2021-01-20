@@ -1,18 +1,24 @@
 #!/bin/bash
 set -e
 
-bazel test //test:cpu_timer_test \
+# bazel test //test:cpu_timer_test \
+# 				--cxxopt='-std=c++11' \
+# 				--copt='-Wall' \
+# 				--copt='-Wextra' \
+# 				--copt='-fsanitize=address' \
+# 				--copt='-Og' \
+# 				--copt='-g' \
+# 				--linkopt='-fsanitize=address' \
+# 				--strip=never \
+# || (cat bazel-out/k8-fastbuild/testlogs/test/cpu_timer_test/test.log ; exit 1)
+
+# clang-tidy test/test_cpu_timer.cpp -- -I.
+
+bazel run //perf_test:cpu_timer_perf_test \
 				--cxxopt='-std=c++11' \
 				--copt='-Wall' \
 				--copt='-Wextra' \
-				--copt='-fsanitize=address' \
-				--copt='-Og' \
-				--copt='-g' \
-				--linkopt='-fsanitize=address' \
+				--copt='-DNDEBUG' \
+				--copt='-O3' \
 				--strip=never \
-|| (cat bazel-out/k8-fastbuild/testlogs/test/cpu_timer_test/test.log ; exit 1)
-
-set -o noglob
-checks='*'
-
-clang-tidy test/test_cpu_timer.cpp -- -I.
+;
