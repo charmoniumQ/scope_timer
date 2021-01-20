@@ -1,4 +1,4 @@
-#pragma once
+#pragma once // NOLINT(llvm-header-guard)
 
 /**
  * @brief This is the cpu_timer.
@@ -29,8 +29,6 @@
  *
  * - I report both a wall clock (real time since program startup) and CPU time spent on that thread. Both of these should be monotonic.
  *
- *
- *
  * TODO:
  * - Add record for thread_caller.
  * - Log process start somewhere (in thread_caller)?
@@ -38,78 +36,28 @@
  * - Make util headers not exported.
  */
 
-#include "clock.hpp"
 #include "cpu_timer_internal.hpp"
-#include "filesystem.hpp"
-#include "util.hpp"
-#include <fstream>
-#include <iostream>
-
+#include "global_state.hpp"
 namespace cpu_timer {
-	/*
-	 * These global variables should ONLY be used by the macros.
-	 *
-	 * The rest of the code should not depend on global state.
-	 */
 
-	class GlobalState {
-	private:
-		bool is_enabled_var {initialize_is_enabled()};
-		filesystem::path output_dir;
-		Process process;
-		thread_local static Stack* current_thread;
-		static myclock::WallTime set_or_lookup_start_time([[maybe_unused]] const filesystem::path& output_dir) {
-			// std::ifstream start_time_ifile {start_time_path.string()};
-			// size_t start_time_int;
-			// start_time_ifile >> start_time_int;
-			// return time_point{seconds{start_time_int}};
-			return std::chrono::nanoseconds{0};
-		}
-		static bool initialize_is_enabled() {
-			return std::stoi(util::getenv_or("CPU_TIMER_ENABLE", "0")) != 0;
-		}
-	public:
-		void initialize() {
-			filesystem::remove_all(output_dir);
-			filesystem::create_directory(output_dir);
-			// fence();
-			// std::ofstream start_time_ofile {start_time_path.string()};
-			// size_t start_time_int = std::chrono::duration_cast<std::chrono::seconds>(wall_now().time_since_epoch()).count();
-			// start_time_ofile << start_time_int;
-		}
-		GlobalState()
-			// TODO(sam): disable the following constructor
-			: output_dir{util::getenv_or("CPU_TIMER3_PATH", ".cpu_timer3")}
-			, process{set_or_lookup_start_time(output_dir)}
-		{ }
-		~GlobalState() {
-			if (is_enabled()) {
-				serialize();
-			}
-		}
-		GlobalState(const GlobalState& other) = delete;
-		GlobalState& operator=(const GlobalState& other) = delete;
-		filesystem::path serialize() {
-			filesystem::path output_file_path {output_dir / filesystem::path{util::random_hex_string() + std::string{"_data.csv"}}};
-			std::ofstream output_file {output_file_path.string()};
-			assert(output_file.good());
-			output_file
-				<< "#{\"version\": \"3.2\", \"pandas_kwargs\": {\"dtype\": {\"comment\": \"str\"}, \"keep_default_na\": false, \"index_col\": [0, 1], \"comment\": \"#\"}}\n"
-				<< "thread_id,frame_id,function_id,caller_frame_id,cpu_time_start,cpu_time,wall_time_start,wall_time,function_name,comment\n"
-				;
-			process.serialize(output_file);
-			std::cerr << "Serialized to " << output_file_path.c_str() << "\n";
-			return output_file_path;
-		}
-		Stack& get_current_stack() {
-			return *(current_thread != nullptr ? current_thread : (current_thread = make_stack()));
-		}
-		void static set_current_stack(Stack& other) { current_thread = &other; }
-		Stack* make_stack() { return process.make_stack(); }
-		bool is_enabled() const { return is_enabled_var; }
-	};
+	// TODO(sam): front-end interface
+	// TODO(sam): is_enabled
+	// TODO(sam): perf test: (no annotations, disabled at compile-time, disabled at run-time, coalesced into 1 post-mortem batch but new thread, coalesced into 1 post-mortem batch, enabled coalesced into N batches) x (func call, func call in new thread) without a callback
+	// This tells us: disabled at (compile|run)-time == no annotations, overhead of func-call logging, overhead of first func-call log in new thread, overhead of batch submission
 
-	static GlobalState __state;
+	using CpuTime = detail::CpuTime;
+	using WallTime = detail::WallTime;
+	using CallbackType = detail::CallbackType;
+	static const auto& make_process = detail::make_process;
+	static const auto& get_process = detail::get_process;
+	using Process = detail::Process;
+
 } // namespace cpu_timer
 
-inline int foo() { return 0; }
+#ifdef CPU_TIMER_DISABLE
+#define CPU_TIMER_TIME_BLOCK(comment, site_name) const auto TOKENPASTE(cpu_timer_, __LINE__) = cpu_timer::detail::StackFrameContext{cpu_timer::detail::get_stack(), comment, site_name, __FILE__, __LINE__};
+#else
+#define CPU_TIMER_TIME_BLOCK(comment, site_name)
+#endif
+#define CPU_TIMER_TIME_FUNCTION_COMMENT(comment) CPU_TIMER_TIME_BLOCK(comment, __FUNC__)
+#define CPU_TIMER_TIME_FUNCTION() CPU_TIMER_TIME_FUNCTION_COMMENT("")

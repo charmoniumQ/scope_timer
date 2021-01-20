@@ -1,24 +1,34 @@
 #!/bin/bash
+set -e
+
 bazel test //test:cpu_timer_test \
 				--cxxopt='-std=c++11' \
 				--cxxopt='-Wall' \
 				--cxxopt='-Wextra' \
-				--cxxopt='-Werror' \
 				--cxxopt='-fsanitize=address' \
+				--cxxopt='-Og' \
 				--cxxopt='-g' \
-				--linkopt='-fsanitize=address'
+				--cxxopt='-ferror-limit=50' \
+				--linkopt='-fsanitize=address' \
+;
 
 set -o noglob
 checks='*'
-checks="${checks},-modernize-use-trailing-return-type"
-checks="${checks},-fuchsia-*"
-checks="${checks},-llvm-header-guard"
+
+# I disagree with these checks
 checks="${checks},-google-runtime-references"
-checks="${checks},-hicpp-special-member-functions"
-checks="${checks},-cppcoreguidelines-special-member-functions"
+checks="${checks},-fuchsia-*"
+
+# I need C++11 compatibility
+checks="${checks},-modernize-use-trailing-return-type"
+
+# I must use macros to use __FUNC__, __FILE__, and __LINE__
+checks="${checks},-cppcoreguidelines-macro-usage"
+
+# these errors are in <cassert>. I don't know how to ignore that header.
 checks="${checks},-hicpp-no-array-decay"
 checks="${checks},-cppcoreguidelines-pro-bounds-array-to-pointer-decay"
-checks="${checks},-cppcoreguidelines-owning-memory"
-checks="${checks},-cert-err58-cpp"
+
+#checks="${checks},-cert-err58-cpp"
 
 clang-tidy -checks="${checks}" -header-filter='cpu_timer*.*' test/test_cpu_timer.cpp -- -I.

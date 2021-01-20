@@ -1,11 +1,20 @@
-#pragma once
+#pragma once // NOLINT(llvm-header-guard)
 #include <chrono>
 #include <ctime>
 #include <system_error>
+#include <type_traits>
 
-namespace myclock {
-	using CpuTime = std::chrono::nanoseconds;
+namespace cpu_timer {
+namespace detail {
+	/**
+	 * @brief Process-synchronized, monotonic wall time since process start.
+	 */
 	using WallTime = std::chrono::nanoseconds;
+
+	/**
+	 * @brief Thread-specific, monotonic time this thread occupied a CPU.
+	 */
+	using CpuTime = std::chrono::nanoseconds;
 
 	/**
 	 * @brief A C++ translation of [clock_gettime][1]
@@ -29,7 +38,16 @@ namespace myclock {
 		return cpp_clock_gettime(CLOCK_MONOTONIC);
 	}
 
-	static size_t get_nanoseconds(CpuTime /*or WallTime*/ t) {
+	static size_t get_nanoseconds(CpuTime t) {
 		return t.count();
 	}
-} // namespace myclock
+
+	/*
+	  CpuTime and WallTime happen to be synonyms right now, so this is a duplicate definition.
+	static size_t get_nanoseconds(CpuTime t) {
+		return t.count();
+	}
+	*/
+
+} // namespace detail
+} // namespace cpu_timer

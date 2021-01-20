@@ -1,20 +1,16 @@
-#pragma once
-#include <string>
-#include <random>
+#pragma once // NOLINT(llvm-header-guard)
 #include <atomic>
+#include <cassert>
 #include <cstdlib>
+#include <iostream>
+#include <random>
+#include <string>
 
-namespace util {
-	static std::string random_hex_string(size_t n = 16) {
-		std::mt19937 rng {std::random_device{}()};
-		std::uniform_int_distribution<unsigned int> dist {0, 15};
-		std::string ret (n, ' ');
-		for (char& ch : ret) {
-			unsigned int r = dist(rng);
-			ch = (r < 10 ? '0' + r : 'a' + r - 10);
-		}
-		return ret;
-	}
+#define CPU_TIMER_DETAIL_TOKENPASTE_(x, y) x ## y
+#define CPU_TIMER_DETAIL_TOKENPASTE(x, y) CPU_TIMER_DETAIL_TOKENPASTE_(x, y)
+
+namespace cpu_timer {
+namespace detail {
 
 	/**
 	 * @brief if var is env-var return it, else default_
@@ -45,4 +41,10 @@ namespace util {
 			return val;
 		}
 	}
-} // namespace util
+
+	static void error(const char* msg) {
+		std::cerr << msg << "\n";
+		abort();
+	}
+} // namespace detail
+} // namespace cpu_timer
