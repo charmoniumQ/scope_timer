@@ -6,7 +6,6 @@
 #include <ostream>
 #include <unordered_map>
 
-using Frame = cpu_timer::StackFrame;
 using Frames = std::deque<cpu_timer::StackFrame>;
 
 void trace1() {
@@ -16,21 +15,17 @@ void trace1() {
 	trace2();
 }
 
-void verify_thread_main(const Frames& trace, const Frame& frame) {
+void verify_thread_main(const Frames& trace, const cpu_timer::StackFrame& frame) {
 	EXPECT_EQ(0, frame.get_caller_start_index());
 	EXPECT_EQ(0, frame.get_start_index());
 	EXPECT_EQ(trace.size() - 1, frame.get_stop_index());
 	EXPECT_EQ(std::string{"thread_main"}, frame.get_function_name());
 }
 
-void verify_tree(const Frames&) {
-	// TODO(sam):
-}
-
 void verify_preorder(const Frames& trace) {
 	// trace should already be in preorder
 	auto preorder_trace = Frames{trace.cbegin(), trace.cend()};
-	std::sort(preorder_trace.begin(), preorder_trace.end(), [](const Frame& f1, const Frame& f2) {
+	std::sort(preorder_trace.begin(), preorder_trace.end(), [](const cpu_timer::StackFrame& f1, const cpu_timer::StackFrame& f2) {
 		return f1.get_start_index() < f2.get_start_index();
 	});
 	verify_thread_main(preorder_trace, preorder_trace.at(0));
@@ -48,8 +43,12 @@ void verify_preorder(const Frames& trace) {
 			// Check if sorted
 			EXPECT_EQ(prev_frame.get_start_index(), frame.get_start_index() - 1);
 
-			// Our caller must have started before us, except for thread_main, which is a loop
+			// Our caller must have started before us, except for thread_main, which is a loop.
 			EXPECT_LT(frame.get_caller_start_index(), frame.get_start_index());
+			// This also proves that the trace digraph is a tree rooted at the frames[0] record.
+			// Assume for induction i > 0 and frames[0:i] are reachable from the frames[0] record.
+			// If frames[i]'s parent is one of frames[0:i], then frames[i] is also reachable from the 0th record, the inductive step.
+			// Base case is that frames[0] is in the tree rooted at frames[0] (tautology).
 		}
 	}
 }
@@ -79,6 +78,11 @@ void verify_postorder(const Frames& postorder_trace) {
 	}
 }
 
+void verify_general(const Frames& trace) {
+	verify_preorder (trace);
+	verify_postorder(trace);
+}
+
 void verify_trace1(const Frames& trace) {
 	EXPECT_NE(trace.at(0).get_line(), trace.at(1).get_line());
 	EXPECT_EQ(std::string{"trace4"}, trace.at(0).get_function_name());
@@ -106,13 +110,7 @@ void verify_trace3(Frames trace) {
 	EXPECT_EQ(0                    , trace.at(3).get_caller_start_index());
 }
 
-void verify_general(const Frames& trace) {
-	verify_tree(trace);
-	verify_preorder (trace);
-	verify_postorder(trace);
-}
-
-void err_callback(std::thread::id, Frames&&, const Frames&) {
+void err_callback(const cpu_timer::Stack&, Frames&&, const Frames&) {
 	ADD_FAILURE();
 }
 
@@ -144,7 +142,7 @@ void verify_any_trace(const Frames& trace) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions,cppcoreguidelines-special-member-functions,cppcoreguidelines-owning-memory,cert-err58-cpp)
 TEST(CpuTimerTest, TraceCorrectBatched) {
-	cpu_timer::get_process().set_callback([=](std::thread::id, Frames&& finished, const Frames& stack) {
+	cpu_timer::get_process().set_callback([=](const cpu_timer::Stack&, Frames&& finished, const Frames& stack) {
 		EXPECT_EQ(0, stack.size());
 		verify_any_trace(finished);
 	});
@@ -160,7 +158,8 @@ TEST(CpuTimerTest, TraceCorrectUnbatched) {
 	std::unordered_map<std::thread::id, size_t> count;
 	std::unordered_map<std::thread::id, Frames> accumulated;
 	cpu_timer::get_process().set_log_period(cpu_timer::CpuTime{1});
-	cpu_timer::get_process().set_callback([&](std::thread::id thread, Frames&& finished, const Frames&) {
+	cpu_timer::get_process().set_callback([&](const cpu_timer::Stack& stack, Frames&& finished, const Frames&) {
+		auto thread = stack.get_thread_id();
 		std::lock_guard<std::mutex> lock{mutex};
 		EXPECT_EQ(finished.size(), 1);
 		count[thread]++;

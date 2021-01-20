@@ -29,8 +29,6 @@
  *
  * - I report both a wall clock (real time since program startup) and CPU time spent on that thread. Both of these should be monotonic.
  *
- * TODO:
- * - Add details for thread_caller.
  */
 
 #include "cpu_timer_internal.hpp"
@@ -47,6 +45,7 @@ namespace cpu_timer {
 	static const auto& make_process = detail::make_process;
 	static const auto& get_process = detail::get_process;
 	using Process = detail::Process;
+	using Stack = detail::Stack;
 
 } // namespace cpu_timer
 

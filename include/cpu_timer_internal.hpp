@@ -144,8 +144,9 @@ namespace detail {
 	}
 
 	class Process;
+	class Stack;
 
-	using CallbackType = std::function<void(std::thread::id, std::deque<StackFrame>&&, const std::deque<StackFrame>&)>;
+	using CallbackType = std::function<void(const Stack&, std::deque<StackFrame>&&, const std::deque<StackFrame>&)>;
 
 	class Stack {
 	private:
@@ -164,48 +165,6 @@ namespace detail {
 		std::deque<StackFrame> finished;
 		CpuTime last_log;
 		std::mutex finished_mutex;
-
-	public:
-
-		Stack(std::thread::id thread_id_, bool is_enabled_, WallTime process_start_, CpuTime log_period_, CallbackType callback_)
-			: thread_id{thread_id_}
-			, is_enabled{is_enabled_}
-			, process_start{process_start_}
-			, log_period{log_period_}
-			, callback{std::move(callback_)}
-			, start_index{0}
-			, stop_index{0}
-			, last_log{0}
-		{
-			enter_stack_frame("", thread_main, thread_main, 0);
-		}
-
-		~Stack() {
-			exit_stack_frame(thread_main);
-			assert(stack.empty() && "somewhow enter_stack_frame was called more times than exit_stack_frame");
-			if (!finished.empty()) {
-				flush();
-				assert(finished.empty() && "flush() should drain this buffer, and nobody should be adding to it now");
-			}
-		}
-
-		// I do stuff in the destructor that should only happen once per constructor-call.
-		Stack(const Stack& other) = delete;
-		Stack& operator=(const Stack& other) = delete;
-
-		Stack(Stack&& other) noexcept
-			: thread_id{({std::cerr << "Stack::Stack(Stack&&)" << std::endl; other.thread_id;})}
-			, is_enabled{other.is_enabled}
-			, process_start{other.process_start}
-			, log_period{other.log_period}
-			, callback{other.callback}
-			, start_index{other.start_index}
-			, stop_index{other.stop_index}
-			, stack{std::move(other.stack)}
-			, finished{std::move(other.finished)}
-			, last_log{other.last_log}
-		{ }
-		Stack& operator=(Stack&& other) = delete;
 
 		void enter_stack_frame(std::string&& comment, const char* function_name, const char* file_name, size_t line) {
 			stack.emplace_back(
@@ -237,14 +196,61 @@ namespace detail {
 			maybe_flush();
 		}
 
+	public:
+
+		Stack(std::thread::id thread_id_, bool is_enabled_, WallTime process_start_, CpuTime log_period_, CallbackType callback_)
+			: thread_id{thread_id_}
+			, is_enabled{is_enabled_}
+			, process_start{process_start_}
+			, log_period{log_period_}
+			, callback{std::move(callback_)}
+			, start_index{0}
+			, stop_index{0}
+			, last_log{0}
+		{
+			enter_stack_frame("", thread_main, thread_main, 0);
+		}
+
+		~Stack() {
+			exit_stack_frame(thread_main);
+			assert(stack.empty() && "somewhow enter_stack_frame was called more times than exit_stack_frame");
+			flush();
+			assert(finished.empty() && "flush() should drain this buffer, and nobody should be adding to it now. Somehow unflushed StackFrames are still present");
+		}
+
+		// I do stuff in the destructor that should only happen once per constructor-call.
+		Stack(const Stack& other) = delete;
+		Stack& operator=(const Stack& other) = delete;
+
+		Stack(Stack&& other) noexcept
+			: thread_id{({std::cerr << "Stack::Stack(Stack&&)" << std::endl; other.thread_id;})}
+			, is_enabled{other.is_enabled}
+			, process_start{other.process_start}
+			, log_period{other.log_period}
+			, callback{other.callback}
+			, start_index{other.start_index}
+			, stop_index{other.stop_index}
+			, stack{std::move(other.stack)}
+			, finished{std::move(other.finished)}
+			, last_log{other.last_log}
+		{ }
+		Stack& operator=(Stack&& other) = delete;
+
+		/**
+		 * @brief Calls callback on a batch containing all completed records, if any.
+		 */
 		void flush() {
 			if (callback) {
 				std::lock_guard<std::mutex> finished_lock {finished_mutex};
-				std::deque<StackFrame> finished_buffer;
-				finished.swap(finished_buffer);
-				callback(thread_id, std::move(finished_buffer), stack);
+				if (!finished.empty()) {
+					std::deque<StackFrame> finished_buffer;
+					finished.swap(finished_buffer);
+					callback(*this, std::move(finished_buffer), stack);
+				}
 			}
 		}
+
+		std::thread::id get_thread_id() const { return thread_id; }
 
 	private:
 		void maybe_flush() {
