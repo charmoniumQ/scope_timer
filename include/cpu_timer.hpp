@@ -30,21 +30,17 @@
  * - I report both a wall clock (real time since program startup) and CPU time spent on that thread. Both of these should be monotonic.
  *
  * TODO:
- * - Add record for thread_caller.
- * - Log process start somewhere (in thread_caller)?
- * - Remove the mutex in ThreadContext.
- * - Make util headers not exported.
+ * - Add details for thread_caller.
  */
 
 #include "cpu_timer_internal.hpp"
 #include "global_state.hpp"
 namespace cpu_timer {
 
-	// TODO(sam): front-end interface
-	// TODO(sam): is_enabled
 	// TODO(sam): perf test: (no annotations, disabled at compile-time, disabled at run-time, coalesced into 1 post-mortem batch but new thread, coalesced into 1 post-mortem batch, enabled coalesced into N batches) x (func call, func call in new thread) without a callback
 	// This tells us: disabled at (compile|run)-time == no annotations, overhead of func-call logging, overhead of first func-call log in new thread, overhead of batch submission
 
+	using StackFrame = detail::StackFrame;
 	using CpuTime = detail::CpuTime;
 	using WallTime = detail::WallTime;
 	using CallbackType = detail::CallbackType;
@@ -55,9 +51,18 @@ namespace cpu_timer {
 } // namespace cpu_timer
 
 #ifdef CPU_TIMER_DISABLE
-#define CPU_TIMER_TIME_BLOCK(comment, site_name) const auto TOKENPASTE(cpu_timer_, __LINE__) = cpu_timer::detail::StackFrameContext{cpu_timer::detail::get_stack(), comment, site_name, __FILE__, __LINE__};
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define CPU_TIMER_TIME_BLOCK_COMMENT(comment, block_name)
 #else
-#define CPU_TIMER_TIME_BLOCK(comment, site_name)
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define CPU_TIMER_TIME_BLOCK_COMMENT(comment, block_name) const cpu_timer::detail::StackFrameContext CPU_TIMER_DETAIL_TOKENPASTE(cpu_timer_, __LINE__) {cpu_timer::detail::get_stack(), comment, block_name, __FILE__, __LINE__};
 #endif
-#define CPU_TIMER_TIME_FUNCTION_COMMENT(comment) CPU_TIMER_TIME_BLOCK(comment, __FUNC__)
+
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define CPU_TIMER_TIME_BLOCK(block_name) CPU_TIMER_TIME_BLOCK_COMMENT("", block_name)
+
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define CPU_TIMER_TIME_FUNCTION_COMMENT(comment) CPU_TIMER_TIME_BLOCK_COMMENT(comment, __func__)
+
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define CPU_TIMER_TIME_FUNCTION() CPU_TIMER_TIME_FUNCTION_COMMENT("")

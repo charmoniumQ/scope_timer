@@ -23,12 +23,12 @@ namespace detail {
 	 */
 	class StackFrame {
 	private:
-		const std::string comment;
+		std::string comment;
 		const char* function_name;
 		const char* file_name;
-		const size_t line;
-		const size_t caller_start_index;
-		const WallTime process_start;
+		size_t line;
+		size_t caller_start_index;
+		WallTime process_start;
 		WallTime start_wall;
 		CpuTime start_cpu;
 		size_t start_index;
@@ -138,14 +138,13 @@ namespace detail {
 
 	class Process;
 
-	using CallbackType = std::function<void(std::deque<StackFrame>&&, const std::deque<StackFrame>&)>;
+	using CallbackType = std::function<void(std::thread::id, std::deque<StackFrame>&&, const std::deque<StackFrame>&)>;
 
 	class Stack {
 	private:
 		friend class Process;
 		friend class StackFrameContext;
 
-		static constexpr const char* const thread_main = "thread_main";
 		const std::thread::id thread_id;
 		const bool is_enabled;
 		const WallTime process_start;
@@ -169,7 +168,7 @@ namespace detail {
 				// NOT an atomic swap
 				// But call_callback happens in the same thread as {exit|enter}_stack_frame.
 				finished.swap(finished_buffer);
-				callback(std::move(finished_buffer), stack);
+				callback(thread_id, std::move(finished_buffer), stack);
 			}
 		}
 
@@ -187,15 +186,12 @@ namespace detail {
 			, process_start{process_start_}
 			, log_period{log_period_}
 			, callback{std::move(callback_)}
-			, start_index{1}
-			, stop_index{1}
-			, last_log{cpu_now()}
-		{
-			enter_stack_frame(std::string{}, thread_main, thread_main, 0);
-		}
+			, start_index{0}
+			, stop_index{0}
+			, last_log{0}
+		{ }
 
 		~Stack() {
-			exit_stack_frame(thread_main);
 			assert(stack.empty());
 			if (!finished.empty()) {
 				call_callback();
@@ -214,14 +210,14 @@ namespace detail {
 			);
 
 			// very last:
-			stack.back().start_timer(start_index++);
+			stack.back().start_timer(++start_index);
 		}
 
 		void exit_stack_frame([[maybe_unused]] const char* function_name) {
 			assert(!stack.empty());
 
 			// (almost) very first:
-			stack.back().stop_timer(stop_index++);
+			stack.back().stop_timer(++stop_index);
 
 			assert(function_name == stack.back().get_function_name());
 			finished.emplace_back(stack.back());
@@ -301,7 +297,6 @@ namespace detail {
 		 * This is only valid if the threads are @p empty().
 		 */
 		void flush() {
-			assert(empty());
 			std::lock_guard<std::mutex> thread_to_stack_lock {thread_to_stack_mutex};
 			thread_to_stack.clear();
 		}

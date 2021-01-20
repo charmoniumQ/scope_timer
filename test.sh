@@ -22,9 +22,6 @@ checks="${checks},-fuchsia-*"
 # I need C++11 compatibility
 checks="${checks},-modernize-use-trailing-return-type"
 
-# I must use macros to use __FUNC__, __FILE__, and __LINE__
-checks="${checks},-cppcoreguidelines-macro-usage"
-
 # these errors are in <cassert>. I don't know how to ignore that header.
 checks="${checks},-hicpp-no-array-decay"
 checks="${checks},-cppcoreguidelines-pro-bounds-array-to-pointer-decay"

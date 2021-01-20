@@ -22,20 +22,22 @@ namespace detail {
 	static std::shared_ptr<Process> lookup_process() {
 		std::ifstream infile {get_filename()};
 		if (infile.good()) {
-			intptr_t intptr = 0;
+			uintptr_t intptr = 0;
 			infile >> intptr;
 			assert(intptr);
-			return *reinterpret_cast<std::shared_ptr<Process>*>(intptr); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+			// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+			return *reinterpret_cast<std::shared_ptr<Process>*>(intptr);
 		}
 		error("Must call make_process(...) in the main thread before any other cpu_timer actions.");
 		return std::shared_ptr<Process>();
 	}
 
-	static void make_process(CpuTime log_period, CallbackType callback) {
-		bool is_enabled = std::stoi(getenv_or("CPU_TIMER_DISABLE", "0")) != 0;
+	static void make_process(bool is_enabled, CpuTime log_period, CallbackType callback) {
 		process = std::make_shared<Process>(is_enabled, log_period, callback);
 		std::ofstream outfile {get_filename()};
-		outfile << reinterpret_cast<intptr_t>(&process); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+		uintptr_t intptr = reinterpret_cast<uintptr_t>(&process);
+		outfile << intptr;
 	}
 
 	static Process& get_process() {
