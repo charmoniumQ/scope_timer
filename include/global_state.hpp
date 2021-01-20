@@ -99,7 +99,7 @@ namespace detail {
 	public:
 		ThreadLocalStack()
 			: process{get_process()}
-			, stack{process.create_stack(std::this_thread::get_id())}
+			, stack{process.create_stack(std::this_thread::get_id(), get_thread_name())}
 		{ }
 		~ThreadLocalStack() {
 			process.remove_stack(std::this_thread::get_id());

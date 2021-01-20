@@ -31,8 +31,18 @@
  *   CPU time spent on that thread. Both of these should be monotonic.
  *
  * - These timers have a ~400ns overhead (check clocks + storing frame
-     overhead) per frame timed on my system. Run ./test.sh to check on
-     yours.
+ *   overhead) per frame timed on my system. Run ./test.sh to check on
+ *   yours.
+ *
+ * - I use clock_gettime with CLOCK_THREAD_CPUTIME_ID (cpu time) and
+ *   CLOCK_MONOTONIC (wall time). rdtsc won't track CPU time if the
+ *   thread gets interrupted [2], and I "need" the extra work
+ *   that clock_gettime(CLOCK_MONOTIC) does to convert tsc into a wall
+ *   time. The VDSO interface mitigates sycall overhead. In some
+ *   cases, clock_gettime is faster [1].
+ *
+ * [1]: https://stackoverflow.com/questions/7935518/is-clock-gettime-adequate-for-submicrosecond-timing
+ * [2]: https://stackoverflow.com/questions/42189976/calculate-system-time-using-rdtsc
  *
  */
 

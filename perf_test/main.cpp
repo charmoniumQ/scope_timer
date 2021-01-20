@@ -48,12 +48,42 @@ static void fn_thready_timing() {
 	exec_in_thread(fn_timing);
 }
 
-static void check_clocks() {
-	CPU_TIMER_UNUSED auto start_cpu  = cpu_timer::detail::cpu_now ();
-	CPU_TIMER_UNUSED auto start_wall = cpu_timer::detail::wall_now();
-	CPU_TIMER_UNUSED auto stop_cpu   = cpu_timer::detail::cpu_now ();
-	CPU_TIMER_UNUSED auto stop_wall  = cpu_timer::detail::wall_now();
+static uint64_t rdtsc() {
+	uint32_t lo = 0;
+	uint32_t hi = 0;
+	// NOLINTNEXTLINE(hicpp-no-assembler)
+	__asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
+	// NOLINTNEXTLINE(hicpp-signed-bitwise)
+	return static_cast<uint64_t>(hi) << std::numeric_limits<uint32_t>::digits | lo;
+}
+
+/*
+ * When testing the timers, I will still call noop().
+ * The deviation of noop() is relatively low, so it does not impact perfomance that much.
+ * On the other hand, by subtracting the time of `for() { noop(); }`, I can cancel out the for-loop and func-call overhead.
+ */
+static void check_wall() {
 	noop();
+	if (cpu_timer::detail::use_fences) { cpu_timer::detail::fence(); }
+	auto wall  = cpu_timer::detail::wall_now();
+	if (cpu_timer::detail::use_fences) { cpu_timer::detail::fence(); }
+	(void)(wall);
+}
+
+static void check_cpu() {
+	noop();
+	if (cpu_timer::detail::use_fences) { cpu_timer::detail::fence(); }
+	auto cpu  = cpu_timer::detail::cpu_now();
+	if (cpu_timer::detail::use_fences) { cpu_timer::detail::fence(); }
+	(void)(cpu);
+}
+
+static void check_tsc() {
+	noop();
+	if (cpu_timer::detail::use_fences) { cpu_timer::detail::fence(); }
+	auto tsc  = rdtsc();
+	if (cpu_timer::detail::use_fences) { cpu_timer::detail::fence(); }
+	(void)(tsc);
 }
 
 int main() {
@@ -110,9 +140,21 @@ int main() {
 		}
 	});
 
-	uint64_t time_check_clocks = exec_in_thread([&] {
+	uint64_t time_check_wall = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
-			check_clocks();
+			check_wall();
+		}
+	});
+
+	uint64_t time_check_cpu = exec_in_thread([&] {
+		for (size_t i = 0; i < TRIALS; ++i) {
+			check_cpu();
+		}
+	});
+
+	uint64_t time_check_tsc = exec_in_thread([&] {
+		for (size_t i = 0; i < TRIALS; ++i) {
+			check_tsc();
 		}
 	});
 
@@ -122,9 +164,10 @@ int main() {
 		<< "Trials = " << TRIALS << std::endl
 		<< "Payload = " << time_none / TRIALS << "ns" << std::endl
 		<< "Overhead when runtime-disabled = " << (time_rt_disabled - time_none) / TRIALS << "ns per call" << std::endl
-		<< "Overhead check clocks = " << (time_check_clocks - time_none) / TRIALS << "ns per call" << std::endl
-		<< "Overhead of storing frame = " << (time_logging - time_check_clocks) / TRIALS << "ns per call" << std::endl
-		<< "Total overhead of cpu_timer = " << (time_logging - time_none) / TRIALS << "ns per call" << std::endl
+		<< "Overhead check wall = " << (time_check_wall - time_none) / TRIALS << "ns per call" << std::endl
+		<< "Overhead check cpu = " << (time_check_cpu - time_none) / TRIALS << "ns per call" << std::endl
+		<< "Overhead check tsc = " << (time_check_tsc - time_none) / TRIALS << "ns per call" << std::endl
+		<< "Overhead of timing and storing frame = " << (time_logging - time_none) / TRIALS << "ns per call" << std::endl
 		/*
 		  I assume a linear model:
 		  - time_unbatched_cbs = TRIALS * per_callback_overhead + TRIALS * per_frame_overhead

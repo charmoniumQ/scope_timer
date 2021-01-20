@@ -14,8 +14,6 @@ bazel test //test:cpu_timer_test \
 	  # --aspects clang_tidy/clang_tidy.bzl%clang_tidy_aspect \
 	  # --output_groups=report \
 
-# clang-tidy test/*.cpp perf_test/*.cpp -- -I.
-
 bazel run //perf_test:cpu_timer_perf_test \
 	  --cxxopt='-std=c++11' \
 	  --copt='-Wall' \
@@ -23,3 +21,5 @@ bazel run //perf_test:cpu_timer_perf_test \
 	  --copt='-DNDEBUG' \
 	  --copt='-O3' \
 ;
+
+clang-tidy test/*.cpp perf_test/*.cpp -- -I.

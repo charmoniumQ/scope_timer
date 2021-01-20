@@ -17,6 +17,8 @@
 namespace cpu_timer {
 namespace detail {
 
+	static constexpr bool use_fences = true;
+
 	class Stack;
 
 	/**
@@ -45,18 +47,18 @@ namespace detail {
 			assert(start_cpu == CpuTime{0} && "start_timer should only be called once");
 
 			// very last thing:
-			fence();
+			if (use_fences) { fence(); }
 			start_wall = wall_now();
 			start_cpu = cpu_now();
-			fence();
+			if (use_fences) { fence(); }
 		}
 		void stop_timer(size_t stop_index_) {
 			assert(stop_cpu == CpuTime{0} && "stop_timer should only be called once");
 			// almost very first thing:
-			fence();
+			if (use_fences) { fence(); }
 			stop_wall = wall_now();
 			stop_cpu = cpu_now();
-			fence();
+			if (use_fences) { fence(); }
 
 			assert(start_cpu != CpuTime{0} && "stop_timer should be called after start_timer");
 			stop_index = stop_index_;
@@ -155,6 +157,7 @@ namespace detail {
 
 		static constexpr const char* const thread_main = "thread_main";
 		const std::thread::id thread_id;
+		std::string name;
 		const bool is_enabled;
 		const WallTime process_start;
 		const CpuTime log_period;
@@ -198,8 +201,9 @@ namespace detail {
 
 	public:
 
-		Stack(std::thread::id thread_id_, bool is_enabled_, WallTime process_start_, CpuTime log_period_, CallbackType callback_)
+		Stack(std::thread::id thread_id_, std::string&& name_, bool is_enabled_, WallTime process_start_, CpuTime log_period_, CallbackType callback_)
 			: thread_id{thread_id_}
+			, name{std::move(name_)}
 			, is_enabled{is_enabled_}
 			, process_start{process_start_}
 			, log_period{log_period_}
@@ -246,6 +250,10 @@ namespace detail {
 
 		std::thread::id get_thread_id() const { return thread_id; }
 
+		std::string get_name() const { return name; }
+
+		void set_name(std::string&& name_) { name = std::move(name_); }
+
 	private:
 		void maybe_flush() {
 			if (get_ns(log_period) != 0) {
@@ -289,12 +297,11 @@ namespace detail {
 			, callback{std::move(callback_)}
 		{ }
 
-		Stack& create_stack(std::thread::id id) {
+		Stack& create_stack(std::thread::id id, std::string&& thread_name) {
 			std::lock_guard<std::mutex> thread_to_stack_lock {thread_to_stack_mutex};
-			// A thread could be created twice if it crosses into an object file with its own static thread_local constructor.
-			// assert(thread_to_stack.count(id) == 0);
+			// This could be the same thread, just a different static context (i.e. different obj-file or lib)
 			if (thread_to_stack.count(id) == 0) {
-				thread_to_stack.emplace(std::piecewise_construct, std::forward_as_tuple(id), std::forward_as_tuple(id, is_enabled, start, log_period, callback));
+				thread_to_stack.emplace(std::piecewise_construct, std::forward_as_tuple(id), std::forward_as_tuple(id, std::move(thread_name), is_enabled, start, log_period, callback));
 			}
 			return thread_to_stack.at(id);
 		}
@@ -306,6 +313,7 @@ namespace detail {
 		 */
 		void remove_stack(std::thread::id id) {
 			std::lock_guard<std::mutex> thread_to_stack_lock {thread_to_stack_mutex};
+			// This could be the same thread, just a different static context (i.e. different obj-file or lib)
 			if (thread_to_stack.count(id) != 0) {
 				thread_to_stack.erase(id);
 			}
