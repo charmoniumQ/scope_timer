@@ -3,9 +3,20 @@
 #include <stdexcept>
 #include <thread>
 
-static void exec_in_thread(const std::function<void()>& fn) {
-	std::thread th {fn};
+static uint64_t exec_in_thread(const std::function<void()>& body) {
+	cpu_timer::CpuNs start {0};
+	cpu_timer::CpuNs stop  {0};
+	std::thread th {[&] {
+		cpu_timer::detail::fence();
+		start = cpu_timer::detail::wall_now();
+		cpu_timer::detail::fence();
+		body();
+		cpu_timer::detail::fence();
+		stop = cpu_timer::detail::wall_now();
+		cpu_timer::detail::fence();
+	}};
 	th.join();
+	return cpu_timer::detail::get_ns(stop - start);
 }
 
 constexpr size_t PAYLOAD_ITERATIONS = 1024;
@@ -50,109 +61,79 @@ int main() {
 
 	constexpr uint64_t TRIALS = 1024 * 32;
 
-	uint64_t time_none = 0;
-	uint64_t time_rt_disabled = 0;
-	uint64_t time_logging = 0;
-	uint64_t time_batched_cb = 0;
-	uint64_t time_unbatched = 0;
-	uint64_t time_thready = 0;
-	uint64_t time_thready_logging = 0;
-	uint64_t time_check_clocks = 0;
-
-	exec_in_thread([&] {
-		auto start = cpu_timer::detail::wall_now();
+	uint64_t time_none = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
 			fn_no_timing();
 		}
-		auto stop = cpu_timer::detail::wall_now();
-		time_none = cpu_timer::detail::get_ns(stop - start);
 	});
 
 	cpu_timer::get_process().set_is_enabled(false);
-	exec_in_thread([&] {
-		auto start = cpu_timer::detail::wall_now();
+	uint64_t time_rt_disabled = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
 			fn_timing();
 		}
-		auto stop = cpu_timer::detail::wall_now();
-		time_rt_disabled = cpu_timer::detail::get_ns(stop - start);
 	});
 
 	cpu_timer::get_process().set_is_enabled(true);
 	cpu_timer::get_process().set_log_period(cpu_timer::CpuNs{0});
 	cpu_timer::get_process().flush();
-	exec_in_thread([&] {
-		auto start = cpu_timer::detail::wall_now();
+	uint64_t time_logging = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
 			fn_timing();
 		}
-		auto stop = cpu_timer::detail::wall_now();
-		time_logging = cpu_timer::detail::get_ns(stop - start);
-		start = cpu_timer::detail::wall_now();
+	});
+	uint64_t time_batched_cb = exec_in_thread([&] {
 		cpu_timer::get_process().flush();
-		stop = cpu_timer::detail::wall_now();
-		time_batched_cb = cpu_timer::detail::get_ns(stop - start);
 	});
 
 	cpu_timer::get_process().set_is_enabled(true);
 	cpu_timer::get_process().set_log_period(cpu_timer::CpuNs{1});
 	cpu_timer::get_process().flush();
-	exec_in_thread([&] {
-		auto start = cpu_timer::detail::wall_now();
+	uint64_t time_unbatched = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
 			fn_timing();
 		}
-		auto stop = cpu_timer::detail::wall_now();
-		time_unbatched = cpu_timer::detail::get_ns(stop - start);
 	});
 
-	exec_in_thread([&] {
-		auto start = cpu_timer::detail::wall_now();
+	uint64_t time_thready = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
 			fn_thready_no_timing();
 		}
-		auto stop = cpu_timer::detail::wall_now();
-		time_thready = cpu_timer::detail::get_ns(stop - start);
 	});
 
 	cpu_timer::get_process().set_is_enabled(true);
 	cpu_timer::get_process().set_log_period(cpu_timer::CpuNs{0});
 	cpu_timer::get_process().flush();
-	exec_in_thread([&] {
-		auto start = cpu_timer::detail::wall_now();
+	uint64_t time_thready_logging = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
 			fn_thready_timing();
 		}
-		auto stop = cpu_timer::detail::wall_now();
-		time_thready_logging = cpu_timer::detail::get_ns(stop - start);
 	});
 
-	exec_in_thread([&] {
-		auto start = cpu_timer::detail::wall_now();
+	uint64_t time_check_clocks = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
 			check_clocks();
 		}
-		auto stop = cpu_timer::detail::wall_now();
-		time_check_clocks = cpu_timer::detail::get_ns(stop - start);
 	});
 
 	uint64_t time_unbatched_cbs = time_unbatched - time_logging;
 
 	std::cout
 		<< "Trials = " << TRIALS << std::endl
-		<< "Payload = " << time_none / TRIALS << std::endl
-		<< "Per call overhead when runtime-disabled = " << (time_rt_disabled - time_none) / TRIALS << std::endl
-		<< "Per call overhead check clocks = " << (time_check_clocks - time_none) / TRIALS << std::endl
-		<< "Per call overhead of storing frame = " << (time_logging - time_check_clocks) / TRIALS << " not counting check clocks" << std::endl
+		<< "Payload = " << time_none / TRIALS << "ns" << std::endl
+		<< "Overhead when runtime-disabled = " << (time_rt_disabled - time_none) / TRIALS << "ns per call" << std::endl
+		<< "Overhead check clocks = " << (time_check_clocks - time_none) / TRIALS << "ns per call" << std::endl
+		<< "Overhead of storing frame = " << (time_logging - time_check_clocks) / TRIALS << "ns per call" << std::endl
+		<< "Total overhead of cpu_timer = " << (time_logging - time_none) / TRIALS << "ns per call" << std::endl
 		/*
 		  I assume a linear model:
 		  - time_unbatched_cbs = TRIALS * per_callback_overhead + TRIALS * per_frame_overhead
 		  - time_batched_cb = per_callback_overhead + TRIALS * per_frame_overhead
 		*/
-		<< "Per callback overhead of flush = " << (time_unbatched_cbs - time_batched_cb) / (TRIALS - 1) << std::endl
-		<< "Per frame overhead of flush = " << (time_batched_cb - time_unbatched_cbs / TRIALS) / (TRIALS - 1) << std::endl
-		<< "Per thread system-initialization = " << (time_thready - time_none) / TRIALS << std::endl
-		<< "Per thread logging-initialization = " << (time_thready_logging - time_thready) / TRIALS << " not counting system-initialization" << std::endl
+		<< "Fixed overhead of flush = " << (time_unbatched_cbs - time_batched_cb) / (TRIALS - 1) << "ns" << std::endl
+		<< "Variable overhead flush = " << (time_batched_cb - time_unbatched_cbs / TRIALS) / (TRIALS - 1) << "ns per frame" << std::endl
+		<< "Thread overhead (due to OS) = " << (time_thready - time_none) / TRIALS << "ns per thread" << std::endl
+		<< "Thread overhead (due to cpu_timer) = " << (time_thready_logging - time_thready) / TRIALS << "ns" << std::endl
 		;
 
 	return 0;

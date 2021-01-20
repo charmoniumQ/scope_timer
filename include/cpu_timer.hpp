@@ -30,7 +30,9 @@
  * - I report both a wall clock (real time since program startup) and
  *   CPU time spent on that thread. Both of these should be monotonic.
  *
- * - These timers have a ~300ns overhead per frame (block or function) timed.
+ * - These timers have a ~400ns overhead (check clocks + storing frame
+     overhead) per frame timed on my system. Run ./test.sh to check on
+     yours.
  *
  */
 
