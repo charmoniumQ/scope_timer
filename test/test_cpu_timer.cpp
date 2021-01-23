@@ -6,8 +6,6 @@
 #include <ostream>
 #include <unordered_map>
 
-using Frames = std::deque<cpu_timer::StackFrame>;
-
 void trace1() {
 	CPU_TIMER_TIME_FUNCTION();
 	// test crossing object-file boundary
@@ -15,17 +13,17 @@ void trace1() {
 	trace2();
 }
 
-void verify_thread_main(const Frames& trace, const cpu_timer::StackFrame& frame) {
+void verify_thread_main(const cpu_timer::Frames& trace, const cpu_timer::Frame& frame) {
 	EXPECT_EQ(0, frame.get_caller_start_index());
 	EXPECT_EQ(0, frame.get_start_index());
 	EXPECT_EQ(trace.size() - 1, frame.get_stop_index());
-	EXPECT_EQ(std::string{"thread_main"}, frame.get_function_name());
+	EXPECT_EQ(nullptr, frame.get_function_name());
 }
 
-void verify_preorder(const Frames& trace) {
+void verify_preorder(const cpu_timer::Frames& trace) {
 	// trace should already be in preorder
-	auto preorder_trace = Frames{trace.cbegin(), trace.cend()};
-	std::sort(preorder_trace.begin(), preorder_trace.end(), [](const cpu_timer::StackFrame& f1, const cpu_timer::StackFrame& f2) {
+	auto preorder_trace = cpu_timer::Frames{trace.cbegin(), trace.cend()};
+	std::sort(preorder_trace.begin(), preorder_trace.end(), [](const cpu_timer::Frame& f1, const cpu_timer::Frame& f2) {
 		return f1.get_start_index() < f2.get_start_index();
 	});
 	verify_thread_main(preorder_trace, preorder_trace.at(0));
@@ -53,8 +51,8 @@ void verify_preorder(const Frames& trace) {
 	}
 }
 
-void verify_postorder(const Frames& postorder_trace) {
-	// auto postorder_trace = Frames{trace.cbegin(), trace.cend()};
+void verify_postorder(const cpu_timer::Frames& postorder_trace) {
+	// auto postorder_trace = cpu_timer::Frames{trace.cbegin(), trace.cend()};
 	// std::sort(postorder_trace.begin(), postorder_trace.end(), [](const Frame& f1, const Frame& f2) {
 	// 	return f1.get_stop_index() < f2.get_stop_index();
 	// });
@@ -78,27 +76,27 @@ void verify_postorder(const Frames& postorder_trace) {
 	}
 }
 
-void verify_general(const Frames& trace) {
+void verify_general(const cpu_timer::Frames& trace) {
 	verify_preorder (trace);
 	verify_postorder(trace);
 }
 
-void verify_trace1(const Frames& trace) {
+void verify_trace1(const cpu_timer::Frames& trace) {
 	EXPECT_NE(trace.at(0).get_line(), trace.at(1).get_line());
 	EXPECT_EQ(std::string{"trace4"}, trace.at(0).get_function_name());
 	EXPECT_EQ(2                    , trace.at(0).get_caller_start_index());
 	EXPECT_EQ(std::string{"trace4"}, trace.at(1).get_function_name());
 	EXPECT_EQ(2                    , trace.at(1).get_caller_start_index());
 	EXPECT_EQ(std::string{"trace2"}, trace.at(2).get_function_name());
-	EXPECT_EQ(std::string{"hello"} , trace.at(2).get_comment());
+	EXPECT_EQ(std::string{"hello"} , cpu_timer::extract_type_eraser<std::string>(trace.at(2).get_info()));
 	EXPECT_EQ(1                    , trace.at(2).get_caller_start_index());
 	EXPECT_EQ(std::string{"trace1"}, trace.at(3).get_function_name());
 	EXPECT_EQ(0                    , trace.at(3).get_caller_start_index());
-	EXPECT_EQ(std::string{"thread_main"}, trace.at(4).get_function_name());
+	EXPECT_EQ(nullptr              , trace.at(4).get_function_name());
 	EXPECT_EQ(0                    , trace.at(4).get_caller_start_index());
 }
 
-void verify_trace3(Frames trace) {
+void verify_trace3(cpu_timer::Frames trace) {
 	EXPECT_NE(trace.at(0).get_line(), trace.at(1).get_line());
 	EXPECT_EQ(std::string{"trace4"}, trace.at(0).get_function_name());
 	EXPECT_EQ(1                    , trace.at(0).get_caller_start_index());
@@ -106,18 +104,21 @@ void verify_trace3(Frames trace) {
 	EXPECT_EQ(1                    , trace.at(1).get_caller_start_index());
 	EXPECT_EQ(std::string{"trace3"}, trace.at(2).get_function_name());
 	EXPECT_EQ(0                    , trace.at(2).get_caller_start_index());
-	EXPECT_EQ(std::string{"thread_main"}, trace.at(3).get_function_name());
+	EXPECT_EQ(nullptr              , trace.at(3).get_function_name());
 	EXPECT_EQ(0                    , trace.at(3).get_caller_start_index());
 }
 
-void err_callback(const cpu_timer::Stack&, Frames&&, const Frames&) {
+void err_callback(const cpu_timer::Stack&, cpu_timer::Frames&&, const cpu_timer::Frames&) {
 	ADD_FAILURE();
 }
 
 class Globals {
 public:
 	Globals() noexcept {
-		cpu_timer::make_process(true, cpu_timer::CpuNs{0}, &err_callback);
+		auto& proc = cpu_timer::get_process();
+		proc.set_enabled(true);
+		proc.set_log_period(cpu_timer::CpuNs{0});
+		proc.set_callback(&err_callback);
 	}
 	~Globals() {
 		cpu_timer::get_process().set_callback(cpu_timer::CallbackType{});
@@ -130,7 +131,7 @@ public:
 
 static Globals globals;
 
-void verify_any_trace(const Frames& trace) {
+void verify_any_trace(const cpu_timer::Frames& trace) {
 	verify_general(trace);
 	if (trace.at(trace.size() - 2).get_function_name() == std::string{"trace1"}) {
 		verify_trace1(trace);
@@ -142,7 +143,7 @@ void verify_any_trace(const Frames& trace) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions,cppcoreguidelines-special-member-functions,cppcoreguidelines-owning-memory,cert-err58-cpp)
 TEST(CpuTimerTest, TraceCorrectBatched) {
-	cpu_timer::get_process().set_callback([=](const cpu_timer::Stack&, Frames&& finished, const Frames& stack) {
+	cpu_timer::get_process().set_callback([=](const cpu_timer::Stack&, cpu_timer::Frames&& finished, const cpu_timer::Frames& stack) {
 		EXPECT_EQ(0, stack.size());
 		verify_any_trace(finished);
 	});
@@ -156,10 +157,10 @@ TEST(CpuTimerTest, TraceCorrectBatched) {
 TEST(CpuTimerTest, TraceCorrectUnbatched) {
 	std::mutex mutex;
 	std::unordered_map<std::thread::id, size_t> count;
-	std::unordered_map<std::thread::id, Frames> accumulated;
+	std::unordered_map<std::thread::id, cpu_timer::Frames> accumulated;
 	cpu_timer::get_process().set_log_period(cpu_timer::CpuNs{1});
-	cpu_timer::get_process().set_callback([&](const cpu_timer::Stack& stack, Frames&& finished, const Frames&) {
-		auto thread = stack.get_thread_id();
+	cpu_timer::get_process().set_callback([&](const cpu_timer::Stack& stack, cpu_timer::Frames&& finished, const cpu_timer::Frames&) {
+		auto thread = stack.get_id();
 		std::lock_guard<std::mutex> lock{mutex};
 		EXPECT_EQ(finished.size(), 1);
 		count[thread]++;

@@ -27,7 +27,7 @@ static void noop() {
 	}
 }
 
-static void callback(const cpu_timer::Stack&, std::deque<cpu_timer::StackFrame>&&, const std::deque<cpu_timer::StackFrame>&) {
+static void callback(const cpu_timer::Stack&, cpu_timer::Frames&&, const cpu_timer::Frames&) {
 	noop();
 }
 
@@ -87,9 +87,11 @@ static void check_tsc() {
 }
 
 int main() {
-	cpu_timer::make_process(false, cpu_timer::CpuNs{0}, &callback);
-
 	constexpr uint64_t TRIALS = 1024 * 32;
+
+	cpu_timer::Process& process = cpu_timer::get_process();
+
+	process.set_callback(&callback);
 
 	uint64_t time_none = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
@@ -97,28 +99,28 @@ int main() {
 		}
 	});
 
-	cpu_timer::get_process().set_is_enabled(false);
+	process.set_enabled(false);
 	uint64_t time_rt_disabled = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
 			fn_timing();
 		}
 	});
 
-	cpu_timer::get_process().set_is_enabled(true);
-	cpu_timer::get_process().set_log_period(cpu_timer::CpuNs{0});
-	cpu_timer::get_process().flush();
+	process.set_enabled(true);
+	process.set_log_period(cpu_timer::CpuNs{0});
+	process.flush();
 	uint64_t time_logging = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
 			fn_timing();
 		}
 	});
 	uint64_t time_batched_cb = exec_in_thread([&] {
-		cpu_timer::get_process().flush();
+		process.flush();
 	});
 
-	cpu_timer::get_process().set_is_enabled(true);
-	cpu_timer::get_process().set_log_period(cpu_timer::CpuNs{1});
-	cpu_timer::get_process().flush();
+	process.set_enabled(true);
+	process.set_log_period(cpu_timer::CpuNs{1});
+	process.flush();
 	uint64_t time_unbatched = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
 			fn_timing();
@@ -131,9 +133,9 @@ int main() {
 		}
 	});
 
-	cpu_timer::get_process().set_is_enabled(true);
-	cpu_timer::get_process().set_log_period(cpu_timer::CpuNs{0});
-	cpu_timer::get_process().flush();
+	process.set_enabled(true);
+	process.set_log_period(cpu_timer::CpuNs{0});
+	process.flush();
 	uint64_t time_thready_logging = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
 			fn_thready_timing();

@@ -20,7 +20,7 @@ void trace3() {
 
 void trace2() {
 	// test comment
-	CPU_TIMER_TIME_FUNCTION_COMMENT(std::string{"hello"});
+	CPU_TIMER_TIME_FUNCTION_INFO(cpu_timer::make_type_eraser<std::string>(std::string{"hello"}));
 	std::thread th {[] {
 		// test crossing thread boundary
 		trace3();
