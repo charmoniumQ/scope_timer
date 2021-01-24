@@ -5,13 +5,16 @@
 # I need C++11 compatibility
 # -modernize-use-trailing-return-type
 
+# I use macros to get source loc info. No other way
+# cppcoreguidelines-macro-usage
+
 # these errors are in <cassert>. I don't know how to ignore that header.
 # -hicpp-no-array-decay
 # -cppcoreguidelines-pro-bounds-array-to-pointer-decay
 # -readability-named-parameter
 
 ---
-Checks:          'clang-diagnostic-*,clang-analyzer-*,*,-google-runtime-references,-fuchsia-*,-modernize-use-trailing-return-type,-hicpp-no-array-decay,-cppcoreguidelines-pro-bounds-array-to-pointer-decay,-readability-named-parameter'
+Checks:          'clang-diagnostic-*,clang-analyzer-*,*,-google-runtime-references,-fuchsia-*,-modernize-use-trailing-return-type,-cppcoreguidelines-macro-usage,-hicpp-no-array-decay,-cppcoreguidelines-pro-bounds-array-to-pointer-decay,-readability-named-parameter'
 WarningsAsErrors: ''
 HeaderFilterRegex: 'cpu_timer*.*'
 AnalyzeTemporaryDtors: false

@@ -37,19 +37,22 @@ namespace detail {
 		const char* function_name;
 		const char* file_name;
 		size_t line;
-		size_t caller_start_index;
+		// I don't want to use Frame* for pointers to other frames,
+		// because they can be moved aroudn in memory (e.g. from stack to finished),
+		// and pointers wouldn't work after serialization anyway.
+		size_t index;
+		size_t caller_index;
+		size_t prev_index;
 		WallTime start_wall;
 		CpuTime start_cpu;
-		size_t start_index;
 		WallTime stop_wall;
 		CpuTime stop_cpu;
-		size_t stop_index;
 		TypeEraser info;
 
-		void start_timer(size_t start_index_) {
-			start_index = start_index_;
+		size_t youngest_child_index;
 
-			assert(start_cpu == CpuTime{0} && "start_timer should only be called once");
+		void start_timers() {
+			assert(start_cpu == CpuTime{0} && "timer already started");
 
 			// very last thing:
 			if (use_fences) { fence(); }
@@ -57,16 +60,28 @@ namespace detail {
 			start_cpu = cpu_now();
 			if (use_fences) { fence(); }
 		}
-		void stop_timer(size_t stop_index_) {
-			assert(stop_cpu == CpuTime{0} && "stop_timer should only be called once");
+		void stop_timers() {
+			assert(stop_cpu == CpuTime{0} && "timer already started");
 			// almost very first thing:
 			if (use_fences) { fence(); }
 			stop_wall = wall_now();
 			stop_cpu = cpu_now();
 			if (use_fences) { fence(); }
 
-			assert(start_cpu != CpuTime{0} && "stop_timer should be called after start_timer");
-			stop_index = stop_index_;
+			assert(start_cpu != CpuTime{0} && "timer never started");
+		}
+
+		void start_and_stop_timers(bool wall_time, bool cpu_time) {
+			if (use_fences) { fence(); }
+			if (wall_time) {
+				assert(start_wall == WallTime{0}  && "timer already started");
+				assert(start_wall == WallTime{0}  && "timer already stopped" );
+				start_wall = stop_wall = wall_now();
+			}
+			if (cpu_time) {
+				start_cpu  = stop_cpu  = cpu_now ();
+			}
+			if (use_fences) { fence(); }
 		}
 
 	public:
@@ -75,21 +90,24 @@ namespace detail {
 			const char* function_name_,
 			const char* file_name_,
 			size_t line_,
-			size_t caller_start_index_,
+			size_t index_,
+			size_t caller_index_,
+			size_t prev_index_,
 			TypeEraser info_
 		)
 			: process_start{process_start_}
 			, function_name{function_name_}
 			, file_name{file_name_}
 			, line{line_}
-			, caller_start_index{caller_start_index_}
+			, index{index_}
+			, caller_index{caller_index_}
+			, prev_index{prev_index_}
 			, start_wall{0}
 			, start_cpu{0}
-			, start_index{0}
 			, stop_wall{0}
 			, stop_cpu{0}
-			, stop_index{0}
 			, info{std::move(info_)}
+			, youngest_child_index{0}
 		{ }
 
 		/**
@@ -105,18 +123,25 @@ namespace detail {
 		size_t get_line() const { return line; }
 
 		/**
-		 * @brief The start_index of the Frame which called this one.
+		 * @brief The index of the "parent" Frame (the Frame which called this one).
 		 *
 		 * The top of the stack is a loop.
-		 *
-		 * When a new Frame is created, we don't know the stop_index, since the caller has not yet stopped.
 		 */
-		size_t get_caller_start_index() const { return caller_start_index; }
+		size_t get_caller_index() const { return caller_index; }
+
+		/**
+		 * @brief The index of the "older sibling" Frame (the previous Frame with the same caller).
+		 *
+		 * 0 if this is the eldest child.
+		 */
+		size_t get_prev_index() const { return prev_index; }
+
+		bool has_prev() const { return prev_index != 0; }
 
 		/**
 		 * @brief See documentation of return type.
 		 */
-		WallTime get_stop_wall() const { return stop_wall - process_start; }
+		WallTime get_stop_wall() const { return stop_wall == WallTime{0} ? WallTime{0} : stop_wall - process_start; }
 
 		/**
 		 * @brief See documentation of return type.
@@ -124,14 +149,14 @@ namespace detail {
 		CpuTime get_start_cpu() const { return start_cpu; }
 
 		/**
-		 * @brief An index according to the order that Frames started (AKA pre-order).
+		 * @brief An index (0..n) according to the order that Frames started (AKA pre-order).
 		 */
-		size_t get_start_index() const { return start_index; }
+		size_t get_index() const { return index; }
 
 		/**
 		 * @brief See documentation of return type.
 		 */
-		WallTime get_start_wall() const { return start_wall - process_start; }
+		WallTime get_start_wall() const { return start_wall == WallTime{0} ? WallTime{0} : start_wall - process_start; }
 
 		/**
 		 * @brief See documentation of return type.
@@ -139,17 +164,21 @@ namespace detail {
 		CpuTime get_stop_cpu() const { return stop_cpu; }
 
 		/**
-		 * @brief An index according to the order that Frames stopped (AKA post-order).
+		 * @brief The index of the youngest child (the last direct callee of this frame).
 		 */
-		size_t get_stop_index() const { return stop_index; }
+		size_t get_youngest_callee_index() const { return youngest_child_index; }
+
+		/**
+		 * @brief If this Frame calls no other frames
+		 */
+		bool is_leaf() const { return youngest_child_index == 0; }
 	};
 
 	CPU_TIMER_UNUSED static std::ostream& operator<<(std::ostream& os, const Frame& frame) {
 		return os
-			<< null_to_empty(frame.get_file_name()) << ":" << frame.get_line() << ":" << null_to_empty(frame.get_function_name()) << " called by " << frame.get_caller_start_index() << "\n"
-			<< " cpu   : " << get_ns(frame.get_start_cpu  ()) << " + " << get_ns(frame.get_stop_cpu  () - frame.get_start_cpu  ()) << "\n"
-			<< " wall  : " << get_ns(frame.get_start_wall ()) << " + " << get_ns(frame.get_stop_wall () - frame.get_start_wall ()) << "\n"
-			<< " started: " << frame.get_start_index() << " stopped: " << frame.get_stop_index() << "\n";
+			<< "frame[" << frame.get_index() << "] = "
+			<< null_to_empty(frame.get_file_name()) << ":" << frame.get_line() << ":" << null_to_empty(frame.get_function_name())
+			<< " called by frame[" << frame.get_caller_index() << "]\n"
 			;
 	}
 
@@ -168,34 +197,48 @@ namespace detail {
 		std::deque<Frame> stack;
 		mutable std::mutex finished_mutex;
 		std::deque<Frame> finished; // locked by finished_mutex
-		size_t start_index;
-		size_t stop_index;
+		size_t index;
 		CpuTime last_log;
 
 		void enter_stack_frame(const char* function_name, const char* file_name, size_t line, TypeEraser info) {
+			size_t caller_index = 0;
+			size_t prev_index = 0;
+			size_t this_index = index++;
+
+			if (CPU_TIMER_LIKELY(!stack.empty())) {
+				Frame& caller = stack.back();
+
+				caller_index = caller.index;
+
+				prev_index = caller.youngest_child_index;
+				             caller.youngest_child_index = this_index;
+			}
+
 			stack.emplace_back(
 				get_process_start(),
 				function_name,
 				file_name,
 				line,
-				(CPU_TIMER_UNLIKELY(stack.empty()) ? 0 : stack.back().get_start_index()),
+				this_index,
+				caller_index,
+				prev_index,
 				std::move(info)
 			);
 
 			// very last:
-			stack.back().start_timer(start_index++);
+			stack.back().start_timers();
 		}
 
 		void exit_stack_frame(CPU_TIMER_UNUSED const char* function_name) {
 			assert(!stack.empty() && "somehow exit_stack_frame was called more times than enter_stack_frame");
 
 			// (almost) very first:
-			stack.back().stop_timer(stop_index++);
+			stack.back().stop_timers();
 
 			assert(function_name == stack.back().get_function_name() && "somehow enter_stack_frame and exit_stack_frame for this frame are misaligned");
 			{
 				// std::lock_guard<std::mutex> finished_lock {finished_mutex};
-				finished.emplace_back(stack.back());
+				finished.emplace_back(std::move(stack.back()));
 			}
 			stack.pop_back();
 
@@ -207,13 +250,39 @@ namespace detail {
 		const Frame& get_top() const { return stack.back(); }
 		Frame& get_top() { return stack.back(); }
 
+		void record_event(bool wall_time, bool cpu_time, const char* function_name, const char* file_name, size_t line, TypeEraser info) {
+			size_t this_index = index++;
+
+			assert(!stack.empty());
+			Frame& caller = stack.back();
+
+			size_t caller_index = caller.index;
+
+			size_t prev_index = caller.youngest_child_index;
+			                    caller.youngest_child_index = this_index;
+			
+			
+			finished.emplace_back(
+				get_process_start(),
+				function_name,
+				file_name,
+				line,
+				this_index,
+				caller_index,
+				prev_index,
+				std::move(info)
+			);
+			finished.back().start_and_stop_timers(wall_time, cpu_time);
+
+			maybe_flush();
+		}
+
 		Stack(Process& process_, std::thread::id id_, std::thread::native_handle_type native_handle_, std::string&& name_)
 			: process{process_}
 			, id{id_}
 			, native_handle{native_handle_}
 			, name{std::move(name_)}
-			, start_index{0}
-			, stop_index{0}
+			, index{0}
 			, last_log{0}
 		{
 			enter_stack_frame(nullptr, nullptr, 0, type_eraser_default);
@@ -237,8 +306,7 @@ namespace detail {
 			, name{std::move(other.name)}
 			, stack{std::move(other.stack)}
 			, finished{std::move(other.finished)}
-			, start_index{other.start_index}
-			, stop_index{other.stop_index}
+			, index{other.index}
 			, last_log{other.last_log}
 		{ }
 		Stack& operator=(Stack&& other) = delete;
@@ -282,7 +350,7 @@ namespace detail {
 				CallbackType process_callback = get_callback();
 
 				if (get_ns(process_log_period) != 0) {
-					if (now > last_log + process_log_period) {
+					if (get_ns(now) == 0 || now > last_log + process_log_period) {
 						flush_with_locks();
 					}
 				}

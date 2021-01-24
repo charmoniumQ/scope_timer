@@ -7,7 +7,7 @@ namespace detail {
 	// In C++17, consider using std::any
 	using TypeEraser = std::shared_ptr<void>;
 
-	static TypeEraser type_eraser_default = TypeEraser{};
+	static const TypeEraser type_eraser_default = TypeEraser{};
 
 	// The following functions must be injected into cpu_timer namespace directly
 	// so I will hold them in main instead.

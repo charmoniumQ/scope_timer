@@ -62,8 +62,11 @@ namespace cpu_timer {
 	// Function aliases https://www.fluentcpp.com/2017/10/27/function-aliases-cpp/
 	// Whoops, we don't use this anymore, bc we need to bind methods to their static object.
 
-	static Process& get_process() { return detail::process_container.get_process(); }
-	static Stack& get_stack() { return detail::stack_container.get_stack(); }
+	CPU_TIMER_UNUSED static Process& get_process() { return detail::process_container.get_process(); }
+
+	CPU_TIMER_UNUSED static Stack& get_stack() { return detail::stack_container.get_stack(); }
+
+	static constexpr auto& type_eraser_default = cpu_timer::detail::type_eraser_default;
 
 	// In C++14, we could use templated function aliases
 	template <typename T>
@@ -89,21 +92,25 @@ namespace cpu_timer {
 } // namespace cpu_timer
 
 #if defined(CPU_TIMER_DISABLE)
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define CPU_TIMER_TIME_BLOCK_INFO(block_name, info)
+#define CPU_TIMER_TIME_EVENT_INFO(event_name, info)
 #else
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+
 #define CPU_TIMER_TIME_BLOCK_INFO(block_name, info) \
 	const cpu_timer::detail::StackFrameContext CPU_TIMER_DETAIL_TOKENPASTE(cpu_timer_, __LINE__) {\
 		cpu_timer::get_process(), cpu_timer::get_stack(), block_name, __FILE__, __LINE__, info \
 	};
+
+#define CPU_TIMER_TIME_EVENT_INFO(wall_time, cpu_time, event_name, info) \
+	{ \
+		cpu_timer::get_stack().record_event(wall_time, cpu_time, event_name, __FILE__, __LINE__, info); \
+	}
 #endif
 
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define CPU_TIMER_TIME_BLOCK(block_name) CPU_TIMER_TIME_BLOCK_INFO(block_name, 0)
+#define CPU_TIMER_TIME_BLOCK(block_name) CPU_TIMER_TIME_BLOCK_INFO(block_name, cpu_timer::type_eraser_default)
 
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define CPU_TIMER_TIME_FUNCTION_INFO(info) CPU_TIMER_TIME_BLOCK_INFO(__func__, info)
 
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define CPU_TIMER_TIME_FUNCTION() CPU_TIMER_TIME_FUNCTION_INFO(0)
+#define CPU_TIMER_TIME_FUNCTION() CPU_TIMER_TIME_FUNCTION_INFO(cpu_timer::type_eraser_default)
+
+#define CPU_TIMER_TIME_EVENT() CPU_TIMER_TIME_EVENT_INFO(false, false, __func__, cpu_timer::type_eraser_default)

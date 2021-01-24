@@ -1,6 +1,14 @@
 #!/bin/bash
 set -e
 
+bazel run //include:cpu_timer_minimal_test \
+	  --cxxopt='-std=c++11' \
+	  --copt='-Wall' \
+	  --copt='-Wextra' \
+	  --copt='-pthread' \
+	  --linkopt='-pthread' \
+;
+
 bazel test //test:cpu_timer_test \
 	  --cxxopt='-std=c++11' \
 	  --copt='-Wall' \
@@ -25,4 +33,4 @@ bazel run //perf_test:cpu_timer_perf_test \
 	  --copt='-O3' \
 ;
 
-clang-tidy test/*.cpp perf_test/*.cpp -- -I.
+${CLANG_TIDY-clang-tidy} test/*.cpp perf_test/*.cpp -- -I.

@@ -5,10 +5,10 @@ void trace4() {
 	{
 		CPU_TIMER_TIME_BLOCK("trace4");
 	}
+
 	// test siblings with same name
-	{
-		CPU_TIMER_TIME_BLOCK("trace4");
-	}
+	// test event
+	CPU_TIMER_TIME_EVENT();
 }
 
 void trace3() {
