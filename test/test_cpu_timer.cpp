@@ -39,7 +39,7 @@ void verify_preorder(const cpu_timer::Frames& trace) {
 		// Check that children are refer to the same parent.
 		if (!frame.is_leaf()) {
 			size_t child_index = frame.get_youngest_callee_index();
-			const cpu_timer::Frame* child;
+			const cpu_timer::Frame* child = nullptr;
 			do {
 				child =  &preorder_trace.at(child_index);
 				EXPECT_EQ(child->get_caller_index(), frame.get_index());
@@ -70,7 +70,7 @@ void verify_preorder(const cpu_timer::Frames& trace) {
 
 			// This asserts that this frame is on the linked-list pointed to by its parent.
 			size_t sibling_index = preorder_trace.at(frame.get_caller_index()).get_youngest_callee_index();
-			const cpu_timer::Frame* sibling;
+			const cpu_timer::Frame* sibling = nullptr;
 			bool found = false;
 			do {
 				sibling = &preorder_trace.at(sibling_index);
@@ -149,7 +149,7 @@ public:
 	Globals() noexcept {
 		auto& proc = cpu_timer::get_process();
 		proc.set_enabled(true);
-		proc.set_log_period(cpu_timer::CpuNs{0});
+		proc.callback_every_frame();
 		proc.set_callback(&err_callback);
 	}
 	~Globals() {
@@ -175,6 +175,7 @@ void verify_any_trace(const cpu_timer::Frames& trace) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions,cppcoreguidelines-special-member-functions,cppcoreguidelines-owning-memory,cert-err58-cpp,misc-unused-parameters)
 TEST(CpuTimerTest, TraceCorrectBatched) {
+	cpu_timer::get_process().callback_once();
 	cpu_timer::get_process().set_callback([=](const cpu_timer::Stack&, cpu_timer::Frames&& finished, const cpu_timer::Frames& stack) {
 		EXPECT_EQ(0, stack.size());
 		verify_any_trace(finished);
@@ -190,7 +191,7 @@ TEST(CpuTimerTest, TraceCorrectUnbatched) {
 	std::mutex mutex;
 	std::unordered_map<std::thread::id, size_t> count;
 	std::unordered_map<std::thread::id, cpu_timer::Frames> accumulated;
-	cpu_timer::get_process().set_log_period(cpu_timer::CpuNs{1});
+	cpu_timer::get_process().callback_every_frame();
 	cpu_timer::get_process().set_callback([&](const cpu_timer::Stack& stack, cpu_timer::Frames&& finished, const cpu_timer::Frames&) {
 		auto thread = stack.get_id();
 		std::lock_guard<std::mutex> lock{mutex};

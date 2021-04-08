@@ -107,7 +107,7 @@ int main() {
 	});
 
 	process.set_enabled(true);
-	process.set_log_period(cpu_timer::CpuNs{0});
+	process.callback_once();
 	process.flush();
 	uint64_t time_logging = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
@@ -119,7 +119,7 @@ int main() {
 	});
 
 	process.set_enabled(true);
-	process.set_log_period(cpu_timer::CpuNs{1});
+	process.callback_every_frame();
 	process.flush();
 	uint64_t time_unbatched = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
@@ -134,7 +134,7 @@ int main() {
 	});
 
 	process.set_enabled(true);
-	process.set_log_period(cpu_timer::CpuNs{0});
+	process.callback_once();
 	process.flush();
 	uint64_t time_thready_logging = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
