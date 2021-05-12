@@ -3,7 +3,7 @@
 #include <stdexcept>
 #include <thread>
 
-static uint64_t exec_in_thread(const std::function<void()>& body) {
+static int64_t exec_in_thread(const std::function<void()>& body) {
 	cpu_timer::CpuNs start {0};
 	cpu_timer::CpuNs stop  {0};
 	std::thread th {[&] {
@@ -27,9 +27,12 @@ static void noop() {
 	}
 }
 
-static void callback(const cpu_timer::Stack&, cpu_timer::Frames&&, const cpu_timer::Frames&) {
-	noop();
-}
+class NoopCallback : public cpu_timer::CallbackType {
+public:
+	void thread_start(cpu_timer::Stack&) override { noop();}
+	void thread_in_situ(cpu_timer::Stack&) override { noop(); }
+	void thread_stop(cpu_timer::Stack&) override { noop(); }
+};
 
 static void fn_no_timing() {
 	noop();
@@ -48,13 +51,13 @@ static void fn_thready_timing() {
 	exec_in_thread(fn_timing);
 }
 
-static uint64_t rdtsc() {
+static int64_t rdtsc() {
 	uint32_t lo = 0;
 	uint32_t hi = 0;
 	// NOLINTNEXTLINE(hicpp-no-assembler)
 	__asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
 	// NOLINTNEXTLINE(hicpp-signed-bitwise)
-	return static_cast<uint64_t>(hi) << std::numeric_limits<uint32_t>::digits | lo;
+	return static_cast<int64_t>(hi) << std::numeric_limits<uint32_t>::digits | lo;
 }
 
 /*
@@ -87,20 +90,20 @@ static void check_tsc() {
 }
 
 int main() {
-	constexpr uint64_t TRIALS = 1024 * 32;
+	constexpr int64_t TRIALS = 1024 * 32;
 
 	cpu_timer::Process& process = cpu_timer::get_process();
 
-	process.set_callback(&callback);
+	process.set_callback(std::unique_ptr<cpu_timer::CallbackType>{new NoopCallback});
 
-	uint64_t time_none = exec_in_thread([&] {
+	int64_t time_none = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
 			fn_no_timing();
 		}
 	});
 
 	process.set_enabled(false);
-	uint64_t time_rt_disabled = exec_in_thread([&] {
+	int64_t time_rt_disabled = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
 			fn_timing();
 		}
@@ -108,59 +111,52 @@ int main() {
 
 	process.set_enabled(true);
 	process.callback_once();
-	process.flush();
-	uint64_t time_logging = exec_in_thread([&] {
+	int64_t time_logging = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
 			fn_timing();
 		}
 	});
-	uint64_t time_batched_cb = exec_in_thread([&] {
-		process.flush();
-	});
+	int64_t time_batched_cb = 0;
 
-	process.set_enabled(true);
 	process.callback_every_frame();
-	process.flush();
-	uint64_t time_unbatched = exec_in_thread([&] {
+	int64_t time_unbatched = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
 			fn_timing();
 		}
 	});
 
-	uint64_t time_thready = exec_in_thread([&] {
+	int64_t time_thready = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
 			fn_thready_no_timing();
 		}
 	});
 
-	process.set_enabled(true);
 	process.callback_once();
-	process.flush();
-	uint64_t time_thready_logging = exec_in_thread([&] {
+	int64_t time_thready_logging = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
 			fn_thready_timing();
 		}
 	});
 
-	uint64_t time_check_wall = exec_in_thread([&] {
+	int64_t time_check_wall = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
 			check_wall();
 		}
 	});
 
-	uint64_t time_check_cpu = exec_in_thread([&] {
+	int64_t time_check_cpu = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
 			check_cpu();
 		}
 	});
 
-	uint64_t time_check_tsc = exec_in_thread([&] {
+	int64_t time_check_tsc = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
 			check_tsc();
 		}
 	});
 
-	uint64_t time_unbatched_cbs = time_unbatched - time_logging;
+	int64_t time_unbatched_cbs = time_unbatched - time_logging;
 
 	std::cout
 		<< "Trials = " << TRIALS << std::endl

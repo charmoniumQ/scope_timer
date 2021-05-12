@@ -34,3 +34,5 @@ bazel run //perf_test:cpu_timer_perf_test \
 ;
 
 ${CLANG_TIDY-clang-tidy} test/*.cpp perf_test/*.cpp -- -I.
+
+# TODO: Revise bazel + sanitizers + clang-tidy + clang-analyze

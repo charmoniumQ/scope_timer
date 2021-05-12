@@ -179,7 +179,7 @@ namespace detail {
 		return os
 			<< "frame[" << frame.get_index() << "] = "
 			<< null_to_empty(frame.get_file_name()) << ":" << frame.get_line() << ":" << null_to_empty(frame.get_function_name())
-			<< " called by frame[" << frame.get_caller_index() << "]\n"
+			<< " called by frame[" << frame.get_caller_index() << "]"
 			;
 	}
 
@@ -192,7 +192,12 @@ namespace detail {
 		virtual void thread_in_situ(Stack&) { }
 		virtual void thread_stop(Stack&) { }
 	public:
-		virtual ~CallbackType() { }
+		virtual ~CallbackType() = default;
+		CallbackType(const CallbackType&) = default;
+		CallbackType(CallbackType&&) noexcept { }
+		CallbackType& operator=(const CallbackType&) = default;
+		CallbackType& operator=(CallbackType&&) noexcept { return *this; }
+		CallbackType() = default;
 	};
 
 	class Stack {
@@ -373,10 +378,10 @@ namespace detail {
 		friend class StackFrameContext;
 
 		// std::atomic<bool> enabled;
-		bool enabled;
+		bool enabled {false};
 		// std::mutex config_mutex;
 		const WallTime start;
-		CpuTime callback_period; // locked by config_mutex
+		CpuTime callback_period {0}; // locked by config_mutex
 		std::unique_ptr<CallbackType> callback; // locked by config_mutex
 		// Actually, I don't need to lock the config
 		// If two threads race to modify the config, the "winner" is already non-deterministic
@@ -390,9 +395,7 @@ namespace detail {
 	public:
 
 		explicit Process()
-			: enabled{false}
-			, start{wall_now()}
-			, callback_period{0}
+			: start{wall_now()}
 			, callback{new CallbackType}
 		{ }
 
@@ -486,6 +489,11 @@ namespace detail {
 			// std::lock_guard<std::mutex> config_lock {config_mutex};
 			callback = std::move(callback_);
 		}
+
+		CallbackType& get_callback() {
+			return *callback;
+		}
+
 
 		// get_stack() returns pointers into this, so it should not be copied or moved.
 		Process(const Process&) = delete;
