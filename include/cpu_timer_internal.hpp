@@ -7,6 +7,7 @@
 #include <deque>
 #include <functional>
 #include <list>
+#include <memory>
 #include <mutex>
 #include <ostream>
 #include <string>
@@ -182,7 +183,17 @@ namespace detail {
 			;
 	}
 
-	using CallbackType = std::function<void(const Stack&, std::deque<Frame>&&, const std::deque<Frame>&)>;
+	using Frames = std::deque<Frame>;
+
+	class CallbackType {
+	protected:
+		friend class Stack;
+		virtual void thread_start(Stack&) { }
+		virtual void thread_in_situ(Stack&) { }
+		virtual void thread_stop(Stack&) { }
+	public:
+		virtual ~CallbackType() { }
+	};
 
 	class Stack {
 	private:
@@ -194,11 +205,12 @@ namespace detail {
 		const std::thread::id id;
 		const std::thread::native_handle_type native_handle;
 		std::string name;
-		std::deque<Frame> stack;
+		Frames stack;
 		mutable std::mutex finished_mutex;
-		std::deque<Frame> finished; // locked by finished_mutex
+		Frames finished; // locked by finished_mutex
 		size_t index;
 		CpuTime last_log;
+		const char* blank = "";
 
 		void enter_stack_frame(const char* function_name, const char* file_name, size_t line, TypeEraser info) {
 			size_t caller_index = 0;
@@ -285,14 +297,16 @@ namespace detail {
 			, index{0}
 			, last_log{0}
 		{
-			enter_stack_frame(nullptr, nullptr, 0, type_eraser_default);
+			enter_stack_frame(blank, blank, 0, type_eraser_default);
+			get_callback().thread_start(*this);
 		}
 
 		~Stack() {
-			exit_stack_frame(nullptr);
+			// std::cerr << "Stack::~Stack: " << id << std::endl;
+			exit_stack_frame(blank);
 			assert(stack.empty() && "somewhow enter_stack_frame was called more times than exit_stack_frame");
-			flush();
-			assert(finished.empty() && "flush() should drain this buffer, and nobody should be adding to it now. Somehow unflushed Frames are still present");
+			get_callback().thread_stop(*this);
+			// assert(finished.empty() && "flush() should drain this buffer, and nobody should be adding to it now. Somehow unflushed Frames are still present");
 		}
 
 		// I do stuff in the destructor that should only happen once per constructor-call.
@@ -311,31 +325,20 @@ namespace detail {
 		{ }
 		Stack& operator=(Stack&& other) = delete;
 
-		/**
-		 * @brief Calls callback on a batch containing all completed records, if any.
-		 */
-		void flush() {
-			std::lock_guard<std::mutex> finished_lock {finished_mutex};
-			if (!finished.empty()) {
-				// std::lock_guard<std::mutex> config_lock {process.config_mutex};
-				CallbackType process_callback = get_callback();
-				flush_with_locks();
-			}
-		}
+		std::thread::id get_id() const { return id; }
 
-		std::thread::id get_id() const {
-			return id;
-		}
+		std::thread::native_handle_type get_native_handle() const { return native_handle; }
 
-		std::thread::native_handle_type get_native_handle() const {
-			return native_handle;
-		}
+		std::string get_name() const { return name; }
 
-		std::string get_name() const {
-			return name;
-		}
-		void set_name(std::string&& name_) {
-			name = std::move(name_);
+		void set_name(std::string&& name_) { name = std::move(name_); }
+
+		const Frames& get_stack() const { return stack; }
+
+		Frames drain_finished() {
+			Frames finished_buffer;
+			finished.swap(finished_buffer);
+			return finished_buffer;
 		}
 
 	private:
@@ -346,35 +349,23 @@ namespace detail {
 				CpuTime now = finished.back().get_stop_cpu();
 
 				// std::lock_guard<std::mutex> config_lock {process.config_mutex};
-				CpuTime process_log_period = get_log_period();
-				CallbackType process_callback = get_callback();
+				CpuTime process_callback_period = get_callback_period();
 
-				if (get_ns(process_log_period) != 0) {
-					if (get_ns(now) == 0 || now > last_log + process_log_period) {
-						flush_with_locks();
-					}
+				if (get_ns(process_callback_period) != 0 && (get_ns(process_callback_period) == 1 || now > last_log + process_callback_period)) {
+					get_callback().thread_in_situ(*this);
 				}
 			}
 		}
 
-		void flush_with_locks() {
-			std::deque<Frame> finished_buffer;
-			finished.swap(finished_buffer);
-			CallbackType callback = get_callback();
-			if (callback) {
-				callback(*this, std::move(finished_buffer), stack);
-			}
-		}
-
-		CallbackType get_callback() const;
-		CpuTime get_log_period() const;
+		CallbackType& get_callback() const;
+		CpuTime get_callback_period() const;
 		WallTime get_process_start() const;
 	};
 
 	/**
 	 * @brief All stacks in the current process.
 	 *
-	 * This calls callback with one thread's batches of Frames, periodically not sooner than log_period, in the thread whose functions are in the batch.
+	 * This calls callback with one thread's batches of Frames, periodically not sooner than callback_period, in the thread whose functions are in the batch.
 	 */
 	class Process {
 	private:
@@ -385,8 +376,8 @@ namespace detail {
 		bool enabled;
 		// std::mutex config_mutex;
 		const WallTime start;
-		CpuTime log_period; // locked by config_mutex
-		CallbackType callback; // locked by config_mutex
+		CpuTime callback_period; // locked by config_mutex
+		std::unique_ptr<CallbackType> callback; // locked by config_mutex
 		// Actually, I don't need to lock the config
 		// If two threads race to modify the config, the "winner" is already non-deterministic
 		// The callers should synchronize themselves.
@@ -394,14 +385,15 @@ namespace detail {
 		// The caller should synchronize with the readers.
 		std::unordered_map<std::thread::id, Stack> thread_to_stack; // locked by thread_to_stack_mutex
 		std::unordered_map<std::thread::id, size_t> thread_use_count; // locked by thread_to_stack_mutex
-		mutable std::mutex thread_to_stack_mutex;
+		mutable std::recursive_mutex thread_to_stack_mutex;
 
 	public:
 
 		explicit Process()
 			: enabled{false}
 			, start{wall_now()}
-			, log_period{0}
+			, callback_period{0}
+			, callback{new CallbackType}
 		{ }
 
 		WallTime get_start() { return start; }
@@ -416,7 +408,7 @@ namespace detail {
 				std::thread::native_handle_type native_handle,
 				std::string&& thread_name
 		) {
-			std::lock_guard<std::mutex> thread_to_stack_lock {thread_to_stack_mutex};
+			std::lock_guard<std::recursive_mutex> thread_to_stack_lock {thread_to_stack_mutex};
 			// This could be the same thread, just a different static context (i.e. different obj-file or lib)
 			// Could have also been set up by the caller.
 			if (thread_to_stack.count(thread) == 0) {
@@ -436,7 +428,8 @@ namespace detail {
 		 * This is neccessary because the OS can reuse old thread IDs.
 		 */
 		void delete_stack(std::thread::id thread) {
-			std::lock_guard<std::mutex> thread_to_stack_lock {thread_to_stack_mutex};
+			// std::cerr << "Process::delete_stack: " << thread << std::endl;
+			std::lock_guard<std::recursive_mutex> thread_to_stack_lock {thread_to_stack_mutex};
 			// This could be the same thread, just a different static context (i.e. different obj-file or lib)
 			if (thread_to_stack.count(thread) != 0) {
 				thread_use_count[thread]--;
@@ -456,16 +449,31 @@ namespace detail {
 		}
 
 		/**
-		 * @brief Sets @p log_period for future threads.
+		 * @brief Sets @p callback_period for future threads.
 		 *
 		 * All in-progress threads will complete with the prior value.
 		 */
-		void set_log_period(CpuTime log_period_) {
-			// std::lock_guard<std::mutex> config_lock {config_mutex};
-			log_period = log_period_;
+		void set_callback_period(CpuTime callback_period_) {
+			// std::lock_guard<std::recursive_mutex> config_lock {config_mutex};
+			callback_period = callback_period_;
 		}
 
-		bool is_enabled() {
+		/**
+		 * @brief Calls callback after every frame.
+		 *
+		 * This is usually too inefficient.
+		 */
+		void callback_every_frame() { set_callback_period(CpuTime{1}); }
+
+		/**
+		 * @brief Call callback in destructor.
+		 *
+		 * This is the most efficient, putting the entire lifetime of
+		 * each thread into one batch and calling the callback.
+		 */
+		void callback_once() { set_callback_period(CpuTime{0}); }
+
+		bool is_enabled() const {
 			return enabled;
 		}
 
@@ -474,19 +482,9 @@ namespace detail {
 		 *
 		 * All in-progress threads will complete with the prior value.
 		 */
-		void set_callback(CallbackType callback_) {
+		void set_callback(std::unique_ptr<CallbackType>&& callback_) {
 			// std::lock_guard<std::mutex> config_lock {config_mutex};
 			callback = std::move(callback_);
-		}
-
-		/**
-		 * @brief Flush all finished frames
-		 */
-		void flush() {
-			std::lock_guard<std::mutex> thread_to_stack_lock {thread_to_stack_mutex};
-			for (auto& pair : thread_to_stack) {
-				pair.second.flush();
-			}
 		}
 
 		// get_stack() returns pointers into this, so it should not be copied or moved.
@@ -494,7 +492,12 @@ namespace detail {
 		Process& operator=(const Process&) = delete;
 		Process(const Process&&) = delete;
 		Process& operator=(const Process&&) = delete;
-		~Process() = default;
+		~Process() {
+			// std::cout << "Process::~Process" << std::endl;
+			for (const auto& pair : thread_to_stack) {
+				std::cerr << pair.first << " is still around. Going to kick their logs out.\n";
+			}
+		}
 	};
 
 	/**
@@ -542,11 +545,16 @@ namespace detail {
 		}
 	};
 
-	inline CallbackType Stack::get_callback() const { return process.callback; }
+	inline CallbackType& Stack::get_callback() const { return *process.callback; }
 
-	inline CpuTime Stack::get_log_period() const { return process.log_period; }
+	inline CpuTime Stack::get_callback_period() const { return process.callback_period; }
 
 	inline WallTime Stack::get_process_start() const { return process.start; }
+
+	// TODO(grayson5): Figure out which threads the callback could be called from.
+	// thread_in_situ will always be called from the target thread.
+	// I believe thread_local StackContainer call create_stack and delete_stack, so I think they will always be called from the target thread.
+	// But the main thread might get deleted by the destructor of its containing map, in the main thread.
 
 } // namespace detail
 } // namespace cpu_timer
