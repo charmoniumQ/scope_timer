@@ -33,6 +33,6 @@ bazel run //perf_test:cpu_timer_perf_test \
 	  --copt='-O3' \
 ;
 
-${CLANG_TIDY-clang-tidy} test/*.cpp perf_test/*.cpp -- -I.
+# ${CLANG_TIDY-clang-tidy} test/*.cpp perf_test/*.cpp -- -I.
 
 # TODO: Revise bazel + sanitizers + clang-tidy + clang-analyze
