@@ -1,22 +1,22 @@
-#include "include/cpu_timer.hpp"
+#include "include/scope_timer.hpp"
 #include <deque>
 #include <stdexcept>
 #include <thread>
 
 static int64_t exec_in_thread(const std::function<void()>& body) {
-	cpu_timer::CpuNs start {0};
-	cpu_timer::CpuNs stop  {0};
+	scope_timer::CpuNs start {0};
+	scope_timer::CpuNs stop  {0};
 	std::thread th {[&] {
-		cpu_timer::detail::fence();
-		start = cpu_timer::detail::wall_now();
-		cpu_timer::detail::fence();
+		scope_timer::detail::fence();
+		start = scope_timer::wall_now();
+		scope_timer::detail::fence();
 		body();
-		cpu_timer::detail::fence();
-		stop = cpu_timer::detail::wall_now();
-		cpu_timer::detail::fence();
+		scope_timer::detail::fence();
+		stop = scope_timer::wall_now();
+		scope_timer::detail::fence();
 	}};
 	th.join();
-	return cpu_timer::detail::get_ns(stop - start);
+	return scope_timer::detail::get_ns(stop - start);
 }
 
 constexpr size_t PAYLOAD_ITERATIONS = 1024;
@@ -27,11 +27,11 @@ static void noop() {
 	}
 }
 
-class NoopCallback : public cpu_timer::CallbackType {
+class NoopCallback : public scope_timer::CallbackType {
 public:
-	void thread_start(cpu_timer::Stack&) override { noop();}
-	void thread_in_situ(cpu_timer::Stack&) override { noop(); }
-	void thread_stop(cpu_timer::Stack&) override { noop(); }
+	void thread_start(scope_timer::Thread&) override { noop();}
+	void thread_in_situ(scope_timer::Thread&) override { noop(); }
+	void thread_stop(scope_timer::Thread&) override { noop(); }
 };
 
 static void fn_no_timing() {
@@ -39,7 +39,7 @@ static void fn_no_timing() {
 }
 
 static void fn_timing() {
-	CPU_TIMER_TIME_FUNCTION();
+	SCOPE_TIMER();
 	noop();
 }
 
@@ -67,34 +67,40 @@ static int64_t rdtsc() {
  */
 static void check_wall() {
 	noop();
-	if (cpu_timer::detail::use_fences) { cpu_timer::detail::fence(); }
-	auto wall  = cpu_timer::detail::wall_now();
-	if (cpu_timer::detail::use_fences) { cpu_timer::detail::fence(); }
+	if (scope_timer::detail::use_fences) { scope_timer::detail::fence(); }
+	auto wall  = scope_timer::wall_now();
+	if (scope_timer::detail::use_fences) { scope_timer::detail::fence(); }
 	(void)(wall);
 }
 
 static void check_cpu() {
 	noop();
-	if (cpu_timer::detail::use_fences) { cpu_timer::detail::fence(); }
-	auto cpu  = cpu_timer::detail::cpu_now();
-	if (cpu_timer::detail::use_fences) { cpu_timer::detail::fence(); }
+	if (scope_timer::detail::use_fences) { scope_timer::detail::fence(); }
+	auto cpu  = scope_timer::cpu_now();
+	if (scope_timer::detail::use_fences) { scope_timer::detail::fence(); }
 	(void)(cpu);
 }
 
 static void check_tsc() {
 	noop();
-	if (cpu_timer::detail::use_fences) { cpu_timer::detail::fence(); }
+	if (scope_timer::detail::use_fences) { scope_timer::detail::fence(); }
 	auto tsc  = rdtsc();
-	if (cpu_timer::detail::use_fences) { cpu_timer::detail::fence(); }
+	if (scope_timer::detail::use_fences) { scope_timer::detail::fence(); }
 	(void)(tsc);
 }
 
 int main() {
 	constexpr int64_t TRIALS = 1024 * 32;
 
-	cpu_timer::Process& process = cpu_timer::get_process();
+	scope_timer::Process& process = scope_timer::get_process();
 
-	process.set_callback(std::unique_ptr<cpu_timer::CallbackType>{new NoopCallback});
+	process.set_callback(std::unique_ptr<scope_timer::CallbackType>{new NoopCallback});
+
+	exec_in_thread([&] {
+		for (size_t i = 0; i < TRIALS; ++i) {
+			fn_no_timing();
+		}
+	});
 
 	int64_t time_none = exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {
@@ -174,7 +180,7 @@ int main() {
 		<< "Fixed overhead of flush = " << (time_unbatched_cbs - time_batched_cb) / (TRIALS - 1) << "ns" << std::endl
 		<< "Variable overhead flush = " << (time_batched_cb - time_unbatched_cbs / TRIALS) / (TRIALS - 1) << "ns per frame" << std::endl
 		<< "Thread overhead (due to OS) = " << (time_thready - time_none) / TRIALS << "ns per thread" << std::endl
-		<< "Thread overhead (due to cpu_timer) = " << (time_thready_logging - time_thready) / TRIALS << "ns" << std::endl
+		<< "Thread overhead (due to scope_timer) = " << (time_thready_logging - time_thready) / TRIALS << "ns" << std::endl
 		;
 
 	return 0;

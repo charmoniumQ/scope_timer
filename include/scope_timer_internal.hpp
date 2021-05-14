@@ -2,6 +2,7 @@
 #include "clock.hpp"
 #include "compiler_specific.hpp"
 #include "type_eraser.hpp"
+#include "source_loc.hpp"
 #include "util.hpp"
 #include <cassert>
 #include <deque>
@@ -16,41 +17,41 @@
 #include <utility>
 #include <vector>
 
-namespace cpu_timer {
-namespace detail {
+namespace scope_timer::detail {
 
 	static constexpr bool use_fences = true;
 
-	class Frame;
-	class Stack;
+	using IndexNo = size_t;
+
+	class Timer;
+	class Thread;
 	class Process;
-	class StackFrameContext;
+	class ScopeTimer;
 
 	/**
 	 * @brief Timing and runtime data relating to one stack-frame.
 	 */
-	class Frame {
+	class Timer {
 	private:
-		friend class Stack;
+		friend class Thread;
 
 		WallTime process_start;
+		const char* name;
+		SourceLoc source_loc;
 
-		const char* function_name;
-		const char* file_name;
-		size_t line;
-		// I don't want to use Frame* for pointers to other frames,
+		// I don't want to use Timer* for pointers to other frames,
 		// because they can be moved aroudn in memory (e.g. from stack to finished),
 		// and pointers wouldn't work after serialization anyway.
-		size_t index;
-		size_t caller_index;
-		size_t prev_index;
+		IndexNo index;
+		IndexNo caller_index;
+		IndexNo prev_index;
 		WallTime start_wall;
 		CpuTime start_cpu;
 		WallTime stop_wall;
 		CpuTime stop_cpu;
 		TypeEraser info;
 
-		size_t youngest_child_index;
+		IndexNo youngest_child_index;
 
 		void start_timers() {
 			assert(start_cpu == CpuTime{0} && "timer already started");
@@ -86,20 +87,18 @@ namespace detail {
 		}
 
 	public:
-		Frame(
+		Timer(
 			WallTime process_start_,
-			const char* function_name_,
-			const char* file_name_,
-			size_t line_,
-			size_t index_,
-			size_t caller_index_,
-			size_t prev_index_,
-			TypeEraser info_
+			const char* name_,
+			SourceLoc&& source_loc_,
+			IndexNo index_,
+			IndexNo caller_index_,
+			IndexNo prev_index_,
+			TypeEraser&& info_
 		)
 			: process_start{process_start_}
-			, function_name{function_name_}
-			, file_name{file_name_}
-			, line{line_}
+			, name{name_}
+			, source_loc{std::move(source_loc_)}
 			, index{index_}
 			, caller_index{caller_index_}
 			, prev_index{prev_index_}
@@ -117,25 +116,23 @@ namespace detail {
 		const TypeEraser& get_info() const { return info; }
 		TypeEraser& get_info() { return info; }
 
-		const char* get_function_name() const { return function_name; }
+		const char* get_name() const { return name; }
 
-		const char* get_file_name() const { return file_name; }
-
-		size_t get_line() const { return line; }
+		const SourceLoc& get_source_loc() const { return source_loc; }
 
 		/**
-		 * @brief The index of the "parent" Frame (the Frame which called this one).
+		 * @brief The index of the "parent" Timer (the Timer which called this one).
 		 *
 		 * The top of the stack is a loop.
 		 */
-		size_t get_caller_index() const { return caller_index; }
+		IndexNo get_caller_index() const { return caller_index; }
 
 		/**
-		 * @brief The index of the "older sibling" Frame (the previous Frame with the same caller).
+		 * @brief The index of the "older sibling" Timer (the previous Timer with the same caller).
 		 *
 		 * 0 if this is the eldest child.
 		 */
-		size_t get_prev_index() const { return prev_index; }
+		IndexNo get_prev_index() const { return prev_index; }
 
 		bool has_prev() const { return prev_index != 0; }
 
@@ -150,9 +147,9 @@ namespace detail {
 		CpuTime get_start_cpu() const { return start_cpu; }
 
 		/**
-		 * @brief An index (0..n) according to the order that Frames started (AKA pre-order).
+		 * @brief An index (0..n) according to the order that Timers started (AKA pre-order).
 		 */
-		size_t get_index() const { return index; }
+		IndexNo get_index() const { return index; }
 
 		/**
 		 * @brief See documentation of return type.
@@ -167,30 +164,30 @@ namespace detail {
 		/**
 		 * @brief The index of the youngest child (the last direct callee of this frame).
 		 */
-		size_t get_youngest_callee_index() const { return youngest_child_index; }
+		IndexNo get_youngest_callee_index() const { return youngest_child_index; }
 
 		/**
-		 * @brief If this Frame calls no other frames
+		 * @brief If this Timer calls no other frames
 		 */
 		bool is_leaf() const { return youngest_child_index == 0; }
 	};
 
-	CPU_TIMER_UNUSED static std::ostream& operator<<(std::ostream& os, const Frame& frame) {
+	SCOPE_TIMER_UNUSED static std::ostream& operator<<(std::ostream& os, const Timer& frame) {
 		return os
 			<< "frame[" << frame.get_index() << "] = "
-			<< null_to_empty(frame.get_file_name()) << ":" << frame.get_line() << ":" << null_to_empty(frame.get_function_name())
+			<< frame.get_source_loc()
 			<< " called by frame[" << frame.get_caller_index() << "]"
 			;
 	}
 
-	using Frames = std::deque<Frame>;
+	using Timers = std::deque<Timer>;
 
 	class CallbackType {
 	protected:
-		friend class Stack;
-		virtual void thread_start(Stack&) { }
-		virtual void thread_in_situ(Stack&) { }
-		virtual void thread_stop(Stack&) { }
+		friend class Thread;
+		virtual void thread_start(Thread&) { }
+		virtual void thread_in_situ(Thread&) { }
+		virtual void thread_stop(Thread&) { }
 	public:
 		virtual ~CallbackType() = default;
 		CallbackType(const CallbackType&) = default;
@@ -200,30 +197,29 @@ namespace detail {
 		CallbackType() = default;
 	};
 
-	class Stack {
+	class Thread {
 	private:
 		friend class Process;
-		friend class Frame;
-		friend class StackFrameContext;
+		friend class Timer;
+		friend class ScopeTimer;
 
 		Process& process;
 		const std::thread::id id;
 		const std::thread::native_handle_type native_handle;
 		std::string name;
-		Frames stack;
+		Timers stack;
 		mutable std::mutex finished_mutex;
-		Frames finished; // locked by finished_mutex
-		size_t index;
+		Timers finished; // locked by finished_mutex
+		IndexNo index;
 		CpuTime last_log;
-		const char* blank = "";
 
-		void enter_stack_frame(const char* function_name, const char* file_name, size_t line, TypeEraser info) {
-			size_t caller_index = 0;
-			size_t prev_index = 0;
-			size_t this_index = index++;
+		void enter_stack_frame(const char* name, TypeEraser&& info, SourceLoc source_loc) {
+			IndexNo caller_index = 0;
+			IndexNo prev_index = 0;
+			IndexNo this_index = index++;
 
-			if (CPU_TIMER_LIKELY(!stack.empty())) {
-				Frame& caller = stack.back();
+			if (SCOPE_TIMER_LIKELY(!stack.empty())) {
+				Timer& caller = stack.back();
 
 				caller_index = caller.index;
 
@@ -233,9 +229,8 @@ namespace detail {
 
 			stack.emplace_back(
 				get_process_start(),
-				function_name,
-				file_name,
-				line,
+				name,
+				std::move(source_loc),
 				this_index,
 				caller_index,
 				prev_index,
@@ -246,13 +241,12 @@ namespace detail {
 			stack.back().start_timers();
 		}
 
-		void exit_stack_frame(CPU_TIMER_UNUSED const char* function_name) {
+		void exit_stack_frame() {
 			assert(!stack.empty() && "somehow exit_stack_frame was called more times than enter_stack_frame");
 
 			// (almost) very first:
 			stack.back().stop_timers();
 
-			assert(function_name == stack.back().get_function_name() && "somehow enter_stack_frame and exit_stack_frame for this frame are misaligned");
 			{
 				// std::lock_guard<std::mutex> finished_lock {finished_mutex};
 				finished.emplace_back(std::move(stack.back()));
@@ -264,37 +258,10 @@ namespace detail {
 
 	public:
 
-		const Frame& get_top() const { return stack.back(); }
-		Frame& get_top() { return stack.back(); }
+		const Timer& get_top() const { return stack.back(); }
+		Timer& get_top() { return stack.back(); }
 
-		void record_event(bool wall_time, bool cpu_time, const char* function_name, const char* file_name, size_t line, TypeEraser info) {
-			size_t this_index = index++;
-
-			assert(!stack.empty());
-			Frame& caller = stack.back();
-
-			size_t caller_index = caller.index;
-
-			size_t prev_index = caller.youngest_child_index;
-			                    caller.youngest_child_index = this_index;
-			
-			
-			finished.emplace_back(
-				get_process_start(),
-				function_name,
-				file_name,
-				line,
-				this_index,
-				caller_index,
-				prev_index,
-				std::move(info)
-			);
-			finished.back().start_and_stop_timers(wall_time, cpu_time);
-
-			maybe_flush();
-		}
-
-		Stack(Process& process_, std::thread::id id_, std::thread::native_handle_type native_handle_, std::string&& name_)
+		Thread(Process& process_, std::thread::id id_, std::thread::native_handle_type native_handle_, std::string&& name_)
 			: process{process_}
 			, id{id_}
 			, native_handle{native_handle_}
@@ -302,23 +269,23 @@ namespace detail {
 			, index{0}
 			, last_log{0}
 		{
-			enter_stack_frame(blank, blank, 0, type_eraser_default);
+			enter_stack_frame("", TypeEraser{type_eraser_default}, SourceLoc{});
 			get_callback().thread_start(*this);
 		}
 
-		~Stack() {
-			// std::cerr << "Stack::~Stack: " << id << std::endl;
-			exit_stack_frame(blank);
+		~Thread() {
+			// std::cerr << "Thread::~Thread: " << id << std::endl;
+			exit_stack_frame();
 			assert(stack.empty() && "somewhow enter_stack_frame was called more times than exit_stack_frame");
 			get_callback().thread_stop(*this);
-			// assert(finished.empty() && "flush() should drain this buffer, and nobody should be adding to it now. Somehow unflushed Frames are still present");
+			// assert(finished.empty() && "flush() should drain this buffer, and nobody should be adding to it now. Somehow unflushed Timers are still present");
 		}
 
 		// I do stuff in the destructor that should only happen once per constructor-call.
-		Stack(const Stack& other) = delete;
-		Stack& operator=(const Stack& other) = delete;
+		Thread(const Thread& other) = delete;
+		Thread& operator=(const Thread& other) = delete;
 
-		Stack(Stack&& other) noexcept
+		Thread(Thread&& other) noexcept
 			: process{other.process}
 			, id{other.id}
 			, native_handle{other.native_handle}
@@ -328,7 +295,7 @@ namespace detail {
 			, index{other.index}
 			, last_log{other.last_log}
 		{ }
-		Stack& operator=(Stack&& other) = delete;
+		Thread& operator=(Thread&& other) = delete;
 
 		std::thread::id get_id() const { return id; }
 
@@ -338,10 +305,10 @@ namespace detail {
 
 		void set_name(std::string&& name_) { name = std::move(name_); }
 
-		const Frames& get_stack() const { return stack; }
+		const Timers& get_stack() const { return stack; }
 
-		Frames drain_finished() {
-			Frames finished_buffer;
+		Timers drain_finished() {
+			Timers finished_buffer;
 			finished.swap(finished_buffer);
 			return finished_buffer;
 		}
@@ -368,14 +335,14 @@ namespace detail {
 	};
 
 	/**
-	 * @brief All stacks in the current process.
+	 * @brief All threads in the current process.
 	 *
 	 * This calls callback with one thread's batches of Frames, periodically not sooner than callback_period, in the thread whose functions are in the batch.
 	 */
 	class Process {
 	private:
-		friend class Stack;
-		friend class StackFrameContext;
+		friend class Thread;
+		friend class ScopeTimer;
 
 		// std::atomic<bool> enabled;
 		bool enabled {false};
@@ -388,9 +355,9 @@ namespace detail {
 		// The callers should synchronize themselves.
 		// If this thread writes while someone else reads, there is no guarantee they hadn't "already read" the values.
 		// The caller should synchronize with the readers.
-		std::unordered_map<std::thread::id, Stack> thread_to_stack; // locked by thread_to_stack_mutex
-		std::unordered_map<std::thread::id, size_t> thread_use_count; // locked by thread_to_stack_mutex
-		mutable std::recursive_mutex thread_to_stack_mutex;
+		std::unordered_map<std::thread::id, Thread> threads; // locked by threads_mutex
+		std::unordered_map<std::thread::id, size_t> thread_use_count; // locked by threads_mutex
+		mutable std::recursive_mutex threads_mutex;
 
 	public:
 
@@ -402,27 +369,27 @@ namespace detail {
 		WallTime get_start() { return start; }
 
 		/**
-		 * @brief Create or get the stack.
+		 * @brief Create or get the thread.
 		 *
 		 * For efficiency, the caller should cache this in thread_local storage.
 		 */
-		Stack& create_stack(
+		Thread& create_thread(
 				std::thread::id thread,
 				std::thread::native_handle_type native_handle,
 				std::string&& thread_name
 		) {
-			std::lock_guard<std::recursive_mutex> thread_to_stack_lock {thread_to_stack_mutex};
+			std::lock_guard<std::recursive_mutex> threads_lock {threads_mutex};
 			// This could be the same thread, just a different static context (i.e. different obj-file or lib)
 			// Could have also been set up by the caller.
-			if (thread_to_stack.count(thread) == 0) {
-				thread_to_stack.emplace(
+			if (threads.count(thread) == 0) {
+				threads.emplace(
 					std::piecewise_construct,
 					std::forward_as_tuple(thread),
 					std::forward_as_tuple(*this, thread, native_handle, std::move(thread_name))
 				);
 			}
 			thread_use_count[thread]++;
-			return thread_to_stack.at(thread);
+			return threads.at(thread);
 		}
 
 		/**
@@ -430,14 +397,14 @@ namespace detail {
 		 *
 		 * This is neccessary because the OS can reuse old thread IDs.
 		 */
-		void delete_stack(std::thread::id thread) {
-			// std::cerr << "Process::delete_stack: " << thread << std::endl;
-			std::lock_guard<std::recursive_mutex> thread_to_stack_lock {thread_to_stack_mutex};
+		void delete_thread(std::thread::id thread) {
+			// std::cerr << "Process::delete_thread: " << thread << std::endl;
+			std::lock_guard<std::recursive_mutex> threads_lock {threads_mutex};
 			// This could be the same thread, just a different static context (i.e. different obj-file or lib)
-			if (thread_to_stack.count(thread) != 0) {
+			if (threads.count(thread) != 0) {
 				thread_use_count[thread]--;
 				if (thread_use_count.at(thread) == 0) {
-					thread_to_stack.erase(thread);
+					threads.erase(thread);
 				}
 			}
 		}
@@ -495,40 +462,64 @@ namespace detail {
 		}
 
 
-		// get_stack() returns pointers into this, so it should not be copied or moved.
+		// get_thread() returns pointers into this, so it should not be copied or moved.
 		Process(const Process&) = delete;
 		Process& operator=(const Process&) = delete;
 		Process(const Process&&) = delete;
 		Process& operator=(const Process&&) = delete;
 		~Process() {
 			// std::cout << "Process::~Process" << std::endl;
-			for (const auto& pair : thread_to_stack) {
+			for (const auto& pair : threads) {
 				std::cerr << pair.first << " is still around. Going to kick their logs out.\n";
 			}
 		}
 	};
 
+	struct ScopeTimerArgs {
+		TypeEraser info;
+		const char* name;
+		Process* process;
+		Thread* thread;
+		SourceLoc source_loc;
+
+		ScopeTimerArgs set_info(TypeEraser&& new_info) && {
+			return ScopeTimerArgs{std::move(new_info), name, process, thread, std::move(source_loc)};
+		}
+
+		ScopeTimerArgs set_name(const char* new_name) && {
+			return ScopeTimerArgs{std::move(info), new_name, process, thread, std::move(source_loc)};
+		}
+
+		ScopeTimerArgs set_process(Process* new_process) {
+			return ScopeTimerArgs{std::move(info), name, new_process, thread, std::move(source_loc)};
+		}
+
+		ScopeTimerArgs set_thread(Thread* new_thread) {
+			return ScopeTimerArgs{std::move(info), name, process, new_thread, std::move(source_loc)};
+		}
+
+		ScopeTimerArgs set_source_loc(SourceLoc&& new_source_loc) {
+			return ScopeTimerArgs{std::move(info), name, process, thread, std::move(new_source_loc)};
+		}
+	};
+
 	/**
-	 * @brief An RAII context for creating, stopping, and storing Frames.
+	 * @brief An RAII context for creating, stopping, and storing Timers.
 	 */
-	class StackFrameContext {
+	class ScopeTimer {
 	private:
-		Process& process;
-		Stack& stack;
-		const char* function_name;
+		ScopeTimerArgs args;
 		bool enabled;
 	public:
 		/**
-		 * @brief Begins a new RAII context for a StackFrame in Stack, if enabled.
+		 * @brief Begins a new RAII context for a Timer in Thread, if enabled.
 		 */
-		StackFrameContext(Process& process_, Stack& stack_, const char* function_name_, const char* file_name, size_t line, TypeEraser info)
-			: process{process_}
-			, stack{stack_}
-			, function_name{function_name_}
-			, enabled{process.is_enabled()}
+		ScopeTimer(ScopeTimerArgs&& args_)
+			: args{std::move(args_)}
+			, enabled{args.process->is_enabled()}
 		{
 			if (enabled) {
-				stack.enter_stack_frame(function_name, file_name, line, std::move(info));
+				args.thread->enter_stack_frame(args.name, std::move(args.info), std::move(args.source_loc));
 			}
 		}
 
@@ -536,33 +527,32 @@ namespace detail {
 		 * I have a custom destructor, and should there be a copy, the destructor will run twice, and double-count the frame.
 		 * Therefore, I disallow copies.
 		 */
-		StackFrameContext(const StackFrameContext&) = delete;
-		StackFrameContext& operator=(const StackFrameContext&) = delete;
+		ScopeTimer(const ScopeTimer&) = delete;
+		ScopeTimer& operator=(const ScopeTimer&) = delete;
 
 		// I could support this, but I don't think I need to.
-		StackFrameContext(StackFrameContext&&) = delete;
-		StackFrameContext& operator=(StackFrameContext&&) = delete;
+		ScopeTimer(ScopeTimer&&) = delete;
+		ScopeTimer& operator=(ScopeTimer&&) = delete;
 
 		/**
-		 * @brief Completes the StackFrame in Stack.
+		 * @brief Completes the Timer in Thread.
 		 */
-		~StackFrameContext() {
+		~ScopeTimer() {
 			if (enabled) {
-				stack.exit_stack_frame(function_name);
+				args.thread->exit_stack_frame();
 			}
 		}
 	};
 
-	inline CallbackType& Stack::get_callback() const { return *process.callback; }
+	inline CallbackType& Thread::get_callback() const { return *process.callback; }
 
-	inline CpuTime Stack::get_callback_period() const { return process.callback_period; }
+	inline CpuTime Thread::get_callback_period() const { return process.callback_period; }
 
-	inline WallTime Stack::get_process_start() const { return process.start; }
+	inline WallTime Thread::get_process_start() const { return process.start; }
 
 	// TODO(grayson5): Figure out which threads the callback could be called from.
 	// thread_in_situ will always be called from the target thread.
-	// I believe thread_local StackContainer call create_stack and delete_stack, so I think they will always be called from the target thread.
+	// I believe thread_local ThreadContainer call create_thread and delete_thread, so I think they will always be called from the target thread.
 	// But the main thread might get deleted by the destructor of its containing map, in the main thread.
 
-} // namespace detail
-} // namespace cpu_timer
+} // namespace scope_timer::detail

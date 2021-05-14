@@ -1,19 +1,21 @@
 #pragma once // NOLINT(llvm-header-guard)
 
 /**
- * @brief This is the cpu_timer.
- *
- * Usage:
- *
- * 1. Call `cpu_timer::make_process(...)` exactly once.
- *
- * 2. Time your functions with `CPU_TIMER_TIME_FUNCTION()` and time your
- * blocks with `CPU_TIMER_TIME_BLOCKS("block name")`.
- *
- * 3. `#define CPU_TIMER_DISABLE` to disable it at compiletime. All of
- *    your calls to cpu_timer should compile away to noops. This
- *    allows you to measure the overhead of the cpu_timer itself.
- *
+ * @brief This is the scope_timer.
+
+New usage:
+
+    #include <scope_timer/scope_timer.hpp>
+    auto proc = scope_timer::get_process()
+    proc.emplace_callback<Callback>();
+    proc.callback_once();
+    {
+        SCOPE_TIMER({.name = "name", .info = info, .process = process, .thread = thread});
+        SCOPE_TIMER({});
+        // ...
+    }
+
+
  * Motivation:
  *
  * - It is "opt-in" timing. Nothing is timed, except what you ask
@@ -46,73 +48,61 @@
  *
  */
 
-#include "cpu_timer_internal.hpp"
+#include "scope_timer_internal.hpp"
 #include "global_state.hpp"
-namespace cpu_timer {
+namespace scope_timer {
 
-	using Frames = detail::Frames;
-	using Frame = detail::Frame;
+	using Timers = detail::Timers;
+	using Timer = detail::Timer;
+	using ScopeTimer = detail::ScopeTimer;
+	using ScopeTimerArgs = detail::ScopeTimerArgs;
 	using CpuNs = detail::CpuTime;
 	using WallNs = detail::WallTime;
 	using CallbackType = detail::CallbackType;
 	using Process = detail::Process;
-	using Stack = detail::Stack;
+	using Thread = detail::Thread;
 	using TypeEraser = detail::TypeEraser;
 
 	// Function aliases https://www.fluentcpp.com/2017/10/27/function-aliases-cpp/
 	// Whoops, we don't use this anymore, bc we need to bind methods to their static object.
 
-	CPU_TIMER_UNUSED static Process& get_process() { return detail::process_container.get_process(); }
+	SCOPE_TIMER_UNUSED static Process& get_process() { return detail::process_container.get_process(); }
+	SCOPE_TIMER_UNUSED static Thread& get_thread() { return detail::thread_container.get_thread(); }
 
-	CPU_TIMER_UNUSED static Stack& get_stack() { return detail::stack_container.get_stack(); }
-
-	static constexpr auto& type_eraser_default = cpu_timer::detail::type_eraser_default;
+	static constexpr auto& type_eraser_default = detail::type_eraser_default;
+	static constexpr auto& cpu_now = detail::cpu_now;
+	static constexpr auto& wall_now = detail::wall_now;
+	static constexpr auto& get_ns = detail::get_ns;
 
 	// In C++14, we could use templated function aliases
 	template <typename T>
 	TypeEraser make_type_eraser(T* ptr) {
 		return std::static_pointer_cast<void>(std::shared_ptr<T>{ptr});
 	}
-
 	template <typename T, class... Args>
 	TypeEraser make_type_eraser(Args&&... args) {
 		return std::static_pointer_cast<void>(std::make_shared<T>(std::forward<Args>(args)...));
 	}
-
 	template <typename T>
 	const T& extract_type_eraser(const TypeEraser& type_eraser) {
 		return *std::static_pointer_cast<T>(type_eraser);
 	}
-
 	template <typename T>
 	T& extract_type_eraser(TypeEraser& type_eraser) {
 		return *std::static_pointer_cast<T>(type_eraser);
 	}
 
-} // namespace cpu_timer
+} // namespace scope_timer
 
-#if defined(CPU_TIMER_DISABLE)
-#define CPU_TIMER_TIME_BLOCK_INFO(block_name, info)
-#define CPU_TIMER_TIME_EVENT_INFO(event_name, info)
-#else
 
-#define CPU_TIMER_TIME_BLOCK_INFO(block_name, info) \
-	const cpu_timer::detail::StackFrameContext CPU_TIMER_DETAIL_TOKENPASTE(cpu_timer_, __LINE__) {\
-		cpu_timer::get_process(), cpu_timer::get_stack(), block_name, __FILE__, __LINE__, info \
+#define SCOPE_TIMER_DEFAULT_ARGS() (scope_timer::ScopeTimerArgs{	\
+			scope_timer::type_eraser_default,						\
+			"",														\
+			&scope_timer::get_process(),							\
+			&scope_timer::get_thread(),								\
+			SCOPE_TIMER_SOURCE_LOC() })
+
+#define SCOPE_TIMER(args_dot_set_vars) \
+    scope_timer::ScopeTimer SCOPE_TIMER_UNIQUE_NAME() {	\
+		SCOPE_TIMER_DEFAULT_ARGS() args_dot_set_vars	\
 	};
-
-#define CPU_TIMER_TIME_EVENT_INFO(wall_time, cpu_time, event_name, info) \
-	{ \
-		cpu_timer::get_stack().record_event(wall_time, cpu_time, event_name, __FILE__, __LINE__, info); \
-	}
-#endif
-
-#define CPU_TIMER_TIME_BLOCK(block_name) CPU_TIMER_TIME_BLOCK_INFO(block_name, cpu_timer::type_eraser_default)
-
-#define CPU_TIMER_TIME_FUNCTION_INFO(info) CPU_TIMER_TIME_BLOCK_INFO(__func__, info)
-
-#define CPU_TIMER_TIME_FUNCTION() CPU_TIMER_TIME_FUNCTION_INFO(cpu_timer::type_eraser_default)
-
-#define CPU_TIMER_TIME_EVENT() CPU_TIMER_TIME_EVENT_INFO(false, false, __func__, cpu_timer::type_eraser_default)
-
-#define CPU_TIMER

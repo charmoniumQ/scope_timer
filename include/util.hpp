@@ -6,23 +6,10 @@
 #include <random>
 #include <string>
 
-#define CPU_TIMER_DETAIL_TOKENPASTE_(x, y) x ## y
-#define CPU_TIMER_DETAIL_TOKENPASTE(x, y) CPU_TIMER_DETAIL_TOKENPASTE_(x, y)
+#define SCOPE_TIMER_TOKENPASTE_(x, y) x ## y
+#define SCOPE_TIMER_TOKENPASTE(x, y) SCOPE_TIMER_TOKENPASTE_(x, y)
 
-namespace cpu_timer {
-namespace detail {
-
-	/**
-	 * @brief if var is env-var return it, else default_
-	 */
-	// static std::string
-	// getenv_or(const std::string& var, std::string default_) {
-	// 	if (std::getenv(var.c_str()) != nullptr) {
-	// 		return {std::getenv(var.c_str())};
-	// 	} else {
-	// 		return default_;
-	// 	}
-	// }
+namespace scope_timer::detail {
 
 	static void fence() {
 		std::atomic_thread_fence(std::memory_order_seq_cst);
@@ -42,10 +29,11 @@ namespace detail {
 		}
 	}
 
-	// static void error(const char* msg) {
-	// 	std::cerr << msg << "\n";
-	// 	abort();
-	// }
+	/*
+	static void error(const char* msg) {
+		std::cerr << msg << "\n";
+		abort();
+	}
 
 	static const char* null_to_empty(const char* str) {
 		static constexpr const char* empty = "";
@@ -56,5 +44,15 @@ namespace detail {
 		}
 	}
 
-} // namespace detail
-} // namespace cpu_timer
+	static std::string
+	getenv_or(const std::string& var, std::string default_) {
+		if (std::getenv(var.c_str()) != nullptr) {
+			return {std::getenv(var.c_str())};
+		} else {
+			return default_;
+		}
+	}
+
+	*/
+
+} // namespace scope_timer::detail
