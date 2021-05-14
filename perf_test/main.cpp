@@ -29,7 +29,7 @@ static void noop() {
 
 class NoopCallback : public scope_timer::CallbackType {
 public:
-	void thread_start(scope_timer::Thread&) override { noop();}
+	void thread_start(scope_timer::Thread&) override { noop(); }
 	void thread_in_situ(scope_timer::Thread&) override { noop(); }
 	void thread_stop(scope_timer::Thread&) override { noop(); }
 };

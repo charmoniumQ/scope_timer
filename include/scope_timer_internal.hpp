@@ -433,7 +433,7 @@ namespace scope_timer::detail {
 		 *
 		 * This is usually too inefficient.
 		 */
-		void callback_every_frame() { set_callback_period(CpuTime{1}); }
+		void callback_every() { set_callback_period(CpuTime{1}); }
 
 		/**
 		 * @brief Call callback in destructor.
@@ -452,13 +452,23 @@ namespace scope_timer::detail {
 		 *
 		 * All in-progress threads will complete with the prior value.
 		 */
-		void set_callback(std::unique_ptr<CallbackType>&& callback_) {
+		template <typename YourCallbackType>
+		void set_callback(std::unique_ptr<YourCallbackType>&& callback_) {
 			// std::lock_guard<std::mutex> config_lock {config_mutex};
-			callback = std::move(callback_);
+			callback = std::unique_ptr<CallbackType>{static_cast<CallbackType*>(callback_.release())};
 		}
 
-		CallbackType& get_callback() {
-			return *callback;
+
+		template <typename YourCallbackType, typename... Args>
+		void emplace_callback(Args&&... args) {
+			// In C++17, we can write:
+			// set_callback(std::make_unique<YourCallbackType>(std::forward<Args>(args)...));
+			set_callback(std::unique_ptr<YourCallbackType>{new YourCallbackType{std::forward<Args>(args)...}});
+		}
+
+		template <typename YourCallbackType>
+		YourCallbackType& get_callback() {
+			return dynamic_cast<YourCallbackType&>(*callback);
 		}
 
 

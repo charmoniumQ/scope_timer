@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-bazel run //minimal_test:scope_timer_minimal_test \
+bazel run //example:scope_timer_example \
 	  --cxxopt='-std=c++11' \
 	  --copt='-Wall' \
 	  --copt='-Wextra' \

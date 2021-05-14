@@ -1,5 +1,5 @@
 cc_binary(
-    name = "scope_timer_minimal_test",
+    name = "scope_timer_example",
     srcs = glob(["*.cpp"]),
     deps = [
         "//include:scope_timer",
