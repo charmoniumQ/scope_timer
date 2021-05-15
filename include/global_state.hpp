@@ -1,6 +1,6 @@
 #pragma once // NOLINT(llvm-header-guard)
 #include "compiler_specific.hpp"
-#include "cpu_timer_internal.hpp"
+#include "scope_timer_internal.hpp"
 #include "os_specific.hpp"
 #include "util.hpp"
 #include <memory>
@@ -8,8 +8,7 @@
 #include <string>
 #include <thread>
 
-namespace cpu_timer {
-namespace detail {
+namespace scope_timer::detail {
 
 	/*
 	  I want to hold a process with a static lifetime.
@@ -28,7 +27,7 @@ namespace detail {
 		 */
 		void create_or_lookup_process() {
 			std::ifstream infile {filename};
-			if (CPU_TIMER_LIKELY(infile.good())) {
+			if (SCOPE_TIMER_LIKELY(infile.good())) {
 				uintptr_t intptr = 0;
 				infile >> intptr;
 				// std::cerr << "ProcessContainer::create_or_lookup_process() lookup got " << reinterpret_cast<void*>(intptr) << " from " << filename << "\n";
@@ -55,12 +54,12 @@ namespace detail {
 		~ProcessContainer() {
 			// std::cerr << "ProcessContainer::~ProcessContainer()\n";
 			if (process.unique()) {
-				[[maybe_unused]] int rc = std::remove(filename.c_str());
+				[[maybe_unused]] auto rc = std::remove(filename.c_str());
 				assert(rc == 0);
 			}
 		}
 		Process& get_process() {
-			if (CPU_TIMER_UNLIKELY(!process)) {
+			if (SCOPE_TIMER_UNLIKELY(!process)) {
 				create_or_lookup_process();
 			}
 			return *process;
@@ -68,35 +67,34 @@ namespace detail {
 	} process_container;
 
 	/*
-	  I want the Stack to be in thread-local storage, so each thread
+	  I want the Thread to be in thread-local storage, so each thread
 	  can cheaply access their own (cheaper than looking up in a map
-	  from thread::id -> Stack, I think).
+	  from thread::id -> Thread, I think).
 
-	  However, I can't just `static thread_local Stack`, because the
+	  However, I can't just `static thread_local Thread`, because the
 	  parameters for creation depend on the process. Therefore I will
 	  `static thread_local OBJECT`, where the sole responsibility is
-	  to construct and hold a Stack.
+	  to construct and hold a Thread.
 	*/
-	static thread_local class StackContainer {
+	static thread_local class ThreadContainer {
 	private:
 		std::thread::id id;
 		Process& process;
-		Stack& stack;
+		Thread& thread;
 
 	public:
-		StackContainer()
+		ThreadContainer()
 			: id{std::this_thread::get_id()}
 			, process{process_container.get_process()}
-			, stack{process.create_stack(id, get_tid(), get_thread_name())}
+			, thread{process.create_thread(id, get_tid(), get_thread_name())}
 		{ }
 
-		~StackContainer() {
-			// std::cerr << "StackContainer::~StackContainer: " << id << std::endl;
-			process.delete_stack(id);
+		~ThreadContainer() {
+			// std::cerr << "ThreadContainer::~ThreadContainer: " << id << std::endl;
+			process.delete_thread(id);
 		}
 
-		Stack& get_stack() { return stack; }
-	} stack_container;
+		Thread& get_thread() { return thread; }
+	} thread_container;
 
-} // namespace detail
-} // namespace cpu_timer
+} // namespace scope_timer::detail

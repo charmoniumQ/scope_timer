@@ -1,8 +1,7 @@
-cc_test(
-    name = "scope_timer_perf_test",
+cc_binary(
+    name = "scope_timer_example",
     srcs = glob(["*.cpp"]),
     deps = [
         "//include:scope_timer",
     ],
-    linkopts = ["-pthread"],
 )

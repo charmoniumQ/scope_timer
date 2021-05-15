@@ -4,8 +4,7 @@
 #include <system_error>
 #include <type_traits>
 
-namespace cpu_timer {
-namespace detail {
+namespace scope_timer::detail {
 	/**
 	 * @brief Process-synchronized, monotonic wall time since process start.
 	 */
@@ -49,5 +48,4 @@ namespace detail {
 	}
 	*/
 
-} // namespace detail
-} // namespace cpu_timer
+} // namespace scope_timer::detail

@@ -11,8 +11,7 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
-namespace cpu_timer {
-namespace detail {
+namespace scope_timer::detail {
 
 	using ProcessId = size_t;
 	static ProcessId get_pid() {
@@ -43,21 +42,20 @@ namespace detail {
 	}
 
 	static std::string tmp_path(std::string data) {
-		return "/tmp/cpu_timer_" + data;
+		return "/tmp/scope_timer_" + data;
 	}
 
 	static std::string get_thread_name() {
 		constexpr size_t NAMELEN = 16;
 		char thread_name_buffer[NAMELEN];
-		int rc = pthread_getname_np(pthread_self(), thread_name_buffer, NAMELEN);
-		if (CPU_TIMER_UNLIKELY(rc)) {
+		auto rc = pthread_getname_np(pthread_self(), thread_name_buffer, NAMELEN);
+		if (SCOPE_TIMER_UNLIKELY(rc)) {
 			return std::string{};
 		}
 		return std::string{thread_name_buffer};
 	}
 
-} // namespace detail
-} // namespace cpu_timer
+} // namespace scope_timer::detail
 
 #else
 

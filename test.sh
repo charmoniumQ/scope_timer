@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-bazel run //include:cpu_timer_minimal_test \
+bazel run //example:scope_timer_example \
 	  --cxxopt='-std=c++11' \
 	  --copt='-Wall' \
 	  --copt='-Wextra' \
@@ -9,7 +9,7 @@ bazel run //include:cpu_timer_minimal_test \
 	  --linkopt='-pthread' \
 ;
 
-bazel test //test:cpu_timer_test \
+bazel test //test:scope_timer_test \
 	  --cxxopt='-std=c++11' \
 	  --copt='-Wall' \
 	  --copt='-Wextra' \
@@ -18,14 +18,14 @@ bazel test //test:cpu_timer_test \
 	  --copt='-fsanitize=address' \
 	  --linkopt='-fsanitize=address' \
 	  --strip=never \
-|| (cat bazel-out/k8-fastbuild/testlogs/test/cpu_timer_test/test.log ; exit 1)
+|| (cat bazel-out/k8-fastbuild/testlogs/test/scope_timer_test/test.log ; exit 1)
 	  # --copt='-fsanitize=thread' \
 	  # --linkopt='-fsanitize=thread' \
 
 	  # --aspects clang_tidy/clang_tidy.bzl%clang_tidy_aspect \
 	  # --output_groups=report \
 
-bazel run //perf_test:cpu_timer_perf_test \
+bazel run //perf_test:scope_timer_perf_test \
 	  --cxxopt='-std=c++11' \
 	  --copt='-Wall' \
 	  --copt='-Wextra' \

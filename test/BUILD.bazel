@@ -1,9 +1,9 @@
 cc_test(
-    name = "cpu_timer_test",
+    name = "scope_timer_test",
     srcs = glob(["*.cpp"]),
     deps = [
         "@gtest//:gtest",
         "@gtest//:gtest_main",
-        "//include:cpu_timer",
+        "//include:scope_timer",
     ],
 )
