@@ -10,28 +10,33 @@ namespace charmonium::scope_timer::detail {
 	struct ScopeTimerArgs {
 		TypeEraser info;
 		const char* name;
+		bool only_time_start;
 		Process* process;
 		Thread* thread;
 		SourceLoc source_loc;
 
 		ScopeTimerArgs set_info(TypeEraser&& new_info) && {
-			return ScopeTimerArgs{std::move(new_info), name, process, thread, std::move(source_loc)};
+			return ScopeTimerArgs{std::move(new_info), name, only_time_start, process, thread, std::move(source_loc)};
 		}
 
 		ScopeTimerArgs set_name(const char* new_name) && {
-			return ScopeTimerArgs{std::move(info), new_name, process, thread, std::move(source_loc)};
+			return ScopeTimerArgs{std::move(info), new_name, only_time_start, process, thread, std::move(source_loc)};
 		}
 
 		ScopeTimerArgs set_process(Process* new_process) {
-			return ScopeTimerArgs{std::move(info), name, new_process, thread, std::move(source_loc)};
+			return ScopeTimerArgs{std::move(info), name, only_time_start, new_process, thread, std::move(source_loc)};
 		}
 
 		ScopeTimerArgs set_thread(Thread* new_thread) {
-			return ScopeTimerArgs{std::move(info), name, process, new_thread, std::move(source_loc)};
+			return ScopeTimerArgs{std::move(info), name, only_time_start, process, new_thread, std::move(source_loc)};
 		}
 
 		ScopeTimerArgs set_source_loc(SourceLoc&& new_source_loc) {
-			return ScopeTimerArgs{std::move(info), name, process, thread, std::move(new_source_loc)};
+			return ScopeTimerArgs{std::move(info), name, only_time_start, process, thread, std::move(new_source_loc)};
+		}
+
+		ScopeTimerArgs set_only_time_start(bool new_only_time_start) {
+			return ScopeTimerArgs{std::move(info), name, new_only_time_start, process, thread, std::move(source_loc)};
 		}
 	};
 
@@ -50,8 +55,8 @@ namespace charmonium::scope_timer::detail {
 			: args{std::move(args_)}
 			, enabled{args.process->is_enabled()}
 		{
-			if (enabled) {
-				args.thread->enter_stack_frame(args.name, std::move(args.info), std::move(args.source_loc));
+			if (CHARMONIUM_SCOPE_TIMER_LIKELY(enabled)) {
+				args.thread->enter_stack_frame(args.name, std::move(args.info), std::move(args.source_loc), args.only_time_start);
 			}
 		}
 
@@ -70,7 +75,7 @@ namespace charmonium::scope_timer::detail {
 		 * @brief Completes the Timer in Thread.
 		 */
 		~ScopeTimer() {
-			if (enabled) {
+			if (CHARMONIUM_SCOPE_TIMER_LIKELY(enabled && !args.only_time_start)) {
 				args.thread->exit_stack_frame();
 			}
 		}

@@ -45,6 +45,9 @@ void verify_preorder(const ch_sc::Timers& trace) {
 			} while (child->has_prev());
 		}
 
+		EXPECT_LE(frame.get_start_cpu(), frame.get_stop_cpu()) << "Frame starts before stop";
+		EXPECT_LE(frame.get_start_wall(), frame.get_stop_wall()) << "Frame starts before stop";
+
 		if (i > 0) {
 			auto& prev_frame = preorder_trace.at(i-1);
 

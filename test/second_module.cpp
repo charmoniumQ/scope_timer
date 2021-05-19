@@ -10,7 +10,7 @@ void trace4() {
 
 	// test siblings with same name
 	// test event
-	SCOPE_TIMER();
+	SCOPE_TIMER(.set_only_time_start(true));
 }
 
 void trace3() {

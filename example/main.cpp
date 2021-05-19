@@ -64,6 +64,12 @@ void foo() {
         .set_name("foo")
         .set_info(std::move(type_erased_info))
     );
+
+	// "only_time_start" means that the event will be stop = start = now()
+	// This is appropriate for timing instantaneous-events, and it avoids a CPU check call, which can save hundreds of nanoseconds.
+    SCOPE_TIMER(
+		.set_only_time_start(true)
+    );
 }
 
 void Callback::thread_start(ch_sc::Thread& thread) {

@@ -134,6 +134,7 @@ namespace charmonium::scope_timer {
         charmonium::scope_timer::ScopeTimerArgs{                                  \
             charmonium::scope_timer::type_eraser_default,                         \
             "",                                                                   \
+            false,                                                                \
             &charmonium::scope_timer::get_process(),                              \
             &charmonium::scope_timer::get_thread(),                               \
             CHARMONIUM_SCOPE_TIMER_SOURCE_LOC()                                   \

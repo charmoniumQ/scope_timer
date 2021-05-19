@@ -59,17 +59,9 @@ namespace charmonium::scope_timer::detail {
 			assert(start_cpu != CpuTime{0} && "timer never started");
 		}
 
-		void start_and_stop_timers(bool wall_time, bool cpu_time) {
-			if (use_fences) { fence(); }
-			if (wall_time) {
-				assert(start_wall == WallTime{0}  && "timer already started");
-				assert(start_wall == WallTime{0}  && "timer already stopped" );
-				start_wall = stop_wall = wall_now();
-			}
-			if (cpu_time) {
-				start_cpu  = stop_cpu  = cpu_now ();
-			}
-			if (use_fences) { fence(); }
+		void stop_from_start() {
+			stop_cpu = start_cpu;
+			stop_wall = start_wall;
 		}
 
 	public:

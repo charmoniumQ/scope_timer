@@ -42,18 +42,16 @@ namespace charmonium::scope_timer::detail {
 		IndexNo index;
 		CpuTime last_log;
 
-		void enter_stack_frame(const char* name, TypeEraser&& info, SourceLoc source_loc) {
+		void enter_stack_frame(const char* name, TypeEraser&& info, SourceLoc source_loc, bool only_time_start) {
 			IndexNo caller_index = 0;
 			IndexNo prev_index = 0;
 			IndexNo this_index = index++;
 
 			if (CHARMONIUM_SCOPE_TIMER_LIKELY(!stack.empty())) {
 				Timer& caller = stack.back();
-
 				caller_index = caller.index;
-
 				prev_index = caller.youngest_child_index;
-				             caller.youngest_child_index = this_index;
+				caller.youngest_child_index = this_index;
 			}
 
 			stack.emplace_back(
@@ -68,13 +66,20 @@ namespace charmonium::scope_timer::detail {
 
 			// very last:
 			stack.back().start_timers();
+
+			if (CHARMONIUM_SCOPE_TIMER_UNLIKELY(only_time_start)) {
+				stack.back().stop_from_start();
+				exit_stack_frame(true);
+			}
 		}
 
-		void exit_stack_frame() {
+		void exit_stack_frame(bool already_stopped = false) {
 			assert(!stack.empty() && "somehow exit_stack_frame was called more times than enter_stack_frame");
 
 			// (almost) very first:
-			stack.back().stop_timers();
+			if (CHARMONIUM_SCOPE_TIMER_LIKELY(!already_stopped)) {
+				stack.back().stop_timers();
+			}
 
 			{
 				// std::lock_guard<std::mutex> finished_lock {finished_mutex};
@@ -98,7 +103,7 @@ namespace charmonium::scope_timer::detail {
 			, index{0}
 			, last_log{0}
 		{
-			enter_stack_frame("", TypeEraser{type_eraser_default}, SourceLoc{});
+			enter_stack_frame("", TypeEraser{type_eraser_default}, SourceLoc{}, false);
 			get_callback().thread_start(*this);
 		}
 
