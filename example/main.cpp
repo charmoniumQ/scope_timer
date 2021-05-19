@@ -1,14 +1,16 @@
 // Include scope_timer from any file in your project.
 // Everything is inline, so no link-time duplicates.
-#include "include/scope_timer.hpp"
+#include "charmonium/scope_timer.hpp"
+
+namespace ch_sc = charmonium::scope_timer;
 
 // Define a Callback.
 // ScopeTimer sends you timing data through this.
-class Callback : public scope_timer::CallbackType {
+class Callback : public ch_sc::CallbackType {
 public:
-    void thread_start(scope_timer::Thread&) override;
-    void thread_in_situ(scope_timer::Thread&) override;
-    void thread_stop(scope_timer::Thread&) override;
+    void thread_start(ch_sc::Thread&) override;
+    void thread_in_situ(ch_sc::Thread&) override;
+    void thread_stop(ch_sc::Thread&) override;
 };
 
 void foo();
@@ -16,7 +18,7 @@ void foo();
 int main() {
     // Configure the timer at a process-level
     // Only ONE thread should do this.
-    auto& proc = scope_timer::get_process();
+    auto& proc = ch_sc::get_process();
     proc.emplace_callback<Callback>();
 
     // callback_once means all timers get sent at program termination.
@@ -56,7 +58,7 @@ void foo() {
 
     // You can attach arbitrary information to a frame using `info` of type `TypeEraser`,
     auto info = std::vector<std::string>{"hello", "world"};
-    auto type_erased_info = scope_timer::make_type_eraser<std::vector<std::string>>(info);
+    auto type_erased_info = ch_sc::make_type_eraser<std::vector<std::string>>(info);
 
     SCOPE_TIMER(
         .set_name("foo")
@@ -64,11 +66,11 @@ void foo() {
     );
 }
 
-void Callback::thread_start(scope_timer::Thread& thread) {
+void Callback::thread_start(ch_sc::Thread& thread) {
     // See `scope_internal_timer.hpp:Thread`
     std::cout << thread.get_id() << thread.get_native_handle() << std::endl;
 }
-void Callback::thread_in_situ(scope_timer::Thread& thread) {
+void Callback::thread_in_situ(ch_sc::Thread& thread) {
     // `process.callback_once()` says to never call in_situ.
     // `process.callback_every()` says to call in_situ every time a timer finishes.
     // `process.set_callback_period(std::chrono::nanoseconds{1000})` says to call in_situ in batches of 1000ns.
@@ -93,11 +95,11 @@ void Callback::thread_in_situ(scope_timer::Thread& thread) {
 
         auto type_erased_info = timer.get_info();
         if (type_erased_info) {
-            [[maybe_unused]] auto& info = scope_timer::extract_type_eraser<std::vector<std::string>>(type_erased_info);
+            [[maybe_unused]] auto& info = ch_sc::extract_type_eraser<std::vector<std::string>>(type_erased_info);
         }
     }
 }
-void Callback::thread_stop(scope_timer::Thread& thread) {
+void Callback::thread_stop(ch_sc::Thread& thread) {
     for ([[maybe_unused]] const auto& timer : thread.drain_finished()) {
         // Similar to `Callback::thread_in_situ`, but called (unconditionally) when threads stop.
     }

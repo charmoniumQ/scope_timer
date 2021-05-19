@@ -1,4 +1,6 @@
-#!/bin/bash
+#! /usr/bin/env nix-shell
+#! nix-shell -i bash shell.nix
+
 set -e
 
 bazel run //example:scope_timer_example \

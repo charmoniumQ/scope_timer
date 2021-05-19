@@ -6,10 +6,10 @@
 #include <random>
 #include <string>
 
-#define SCOPE_TIMER_TOKENPASTE_(x, y) x ## y
-#define SCOPE_TIMER_TOKENPASTE(x, y) SCOPE_TIMER_TOKENPASTE_(x, y)
+#define CHARMONIUM_SCOPE_TIMER_TOKENPASTE_(x, y) x ## y
+#define CHARMONIUM_SCOPE_TIMER_TOKENPASTE(x, y) CHARMONIUM_SCOPE_TIMER_TOKENPASTE_(x, y)
 
-namespace scope_timer::detail {
+namespace charmonium::scope_timer::detail {
 
 	static void fence() {
 		std::atomic_thread_fence(std::memory_order_seq_cst);
@@ -55,4 +55,4 @@ namespace scope_timer::detail {
 
 	*/
 
-} // namespace scope_timer::detail
+} // namespace charmonium::scope_timer::detail

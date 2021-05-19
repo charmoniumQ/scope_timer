@@ -82,9 +82,9 @@
  *
  */
 
-#include "scope_timer_internal.hpp"
-#include "global_state.hpp"
-namespace scope_timer {
+#include "scope_timer/global_state.hpp"
+#include "scope_timer/scope_timer.hpp"
+namespace charmonium::scope_timer {
 
 	using Timers = detail::Timers;
 	using Timer = detail::Timer;
@@ -100,8 +100,8 @@ namespace scope_timer {
 	// Function aliases https://www.fluentcpp.com/2017/10/27/function-aliases-cpp/
 	// Whoops, we don't use this anymore, bc we need to bind methods to their static object.
 
-	SCOPE_TIMER_UNUSED static Process& get_process() { return detail::process_container.get_process(); }
-	SCOPE_TIMER_UNUSED static Thread& get_thread() { return detail::thread_container.get_thread(); }
+	CHARMONIUM_SCOPE_TIMER_UNUSED static Process& get_process() { return detail::process_container.get_process(); }
+	CHARMONIUM_SCOPE_TIMER_UNUSED static Thread& get_thread() { return detail::thread_container.get_thread(); }
 
 	static constexpr auto& type_eraser_default = detail::type_eraser_default;
 	static constexpr auto& cpu_now = detail::cpu_now;
@@ -126,17 +126,16 @@ namespace scope_timer {
 		return *std::static_pointer_cast<T>(type_eraser);
 	}
 
-} // namespace scope_timer
+} // namespace charmonium::scope_timer
 
 
-#define SCOPE_TIMER_DEFAULT_ARGS() (scope_timer::ScopeTimerArgs{	\
-			scope_timer::type_eraser_default,						\
-			"",														\
-			&scope_timer::get_process(),							\
-			&scope_timer::get_thread(),								\
-			SCOPE_TIMER_SOURCE_LOC() })
-
-#define SCOPE_TIMER(args_dot_set_vars) \
-    scope_timer::ScopeTimer SCOPE_TIMER_UNIQUE_NAME() {	\
-		SCOPE_TIMER_DEFAULT_ARGS() args_dot_set_vars	\
-	};
+#define SCOPE_TIMER(args_dot_set_vars)                                            \
+    charmonium::scope_timer::ScopeTimer CHARMONIUM_SCOPE_TIMER_UNIQUE_NAME() {(   \
+        charmonium::scope_timer::ScopeTimerArgs{                                  \
+            charmonium::scope_timer::type_eraser_default,                         \
+            "",                                                                   \
+            &charmonium::scope_timer::get_process(),                              \
+            &charmonium::scope_timer::get_thread(),                               \
+            CHARMONIUM_SCOPE_TIMER_SOURCE_LOC()                                   \
+        } args_dot_set_vars                                                       \
+    )};

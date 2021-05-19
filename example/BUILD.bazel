@@ -2,6 +2,6 @@ cc_binary(
     name = "scope_timer_example",
     srcs = glob(["*.cpp"]),
     deps = [
-        "//include:scope_timer",
+        "//charmonium:scope_timer",
     ],
 )

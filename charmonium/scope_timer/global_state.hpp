@@ -1,14 +1,15 @@
 #pragma once // NOLINT(llvm-header-guard)
 #include "compiler_specific.hpp"
-#include "scope_timer_internal.hpp"
 #include "os_specific.hpp"
+#include "thread.hpp"
+#include "process.hpp"
 #include "util.hpp"
 #include <memory>
 #include <fstream>
 #include <string>
 #include <thread>
 
-namespace scope_timer::detail {
+namespace charmonium::scope_timer::detail {
 
 	/*
 	  I want to hold a process with a static lifetime.
@@ -27,7 +28,7 @@ namespace scope_timer::detail {
 		 */
 		void create_or_lookup_process() {
 			std::ifstream infile {filename};
-			if (SCOPE_TIMER_LIKELY(infile.good())) {
+			if (CHARMONIUM_SCOPE_TIMER_LIKELY(infile.good())) {
 				uintptr_t intptr = 0;
 				infile >> intptr;
 				// std::cerr << "ProcessContainer::create_or_lookup_process() lookup got " << reinterpret_cast<void*>(intptr) << " from " << filename << "\n";
@@ -59,7 +60,7 @@ namespace scope_timer::detail {
 			}
 		}
 		Process& get_process() {
-			if (SCOPE_TIMER_UNLIKELY(!process)) {
+			if (CHARMONIUM_SCOPE_TIMER_UNLIKELY(!process)) {
 				create_or_lookup_process();
 			}
 			return *process;

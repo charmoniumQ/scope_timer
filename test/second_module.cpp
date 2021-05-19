@@ -1,4 +1,6 @@
-#include "include/scope_timer.hpp"
+#include "charmonium/scope_timer.hpp"
+
+namespace ch_sc = charmonium::scope_timer;
 
 void trace4() {
 	// test time block
@@ -20,7 +22,7 @@ void trace3() {
 
 void trace2() {
 	// test comment
-	SCOPE_TIMER(.set_info(scope_timer::make_type_eraser<std::string>(std::string{"hello"})));
+	SCOPE_TIMER(.set_info(ch_sc::make_type_eraser<std::string>(std::string{"hello"})));
 	std::thread th {[] {
 		// test crossing thread boundary
 		trace3();

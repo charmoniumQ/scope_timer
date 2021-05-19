@@ -4,6 +4,6 @@ cc_test(
     deps = [
         "@gtest//:gtest",
         "@gtest//:gtest_main",
-        "//include:scope_timer",
+        "//charmonium:scope_timer",
     ],
 )

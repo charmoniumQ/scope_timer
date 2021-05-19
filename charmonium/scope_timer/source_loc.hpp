@@ -1,7 +1,7 @@
 #pragma once // NOLINT(llvm-header-guard)
 #include <iostream>
 
-namespace scope_timer::detail {
+namespace charmonium::scope_timer::detail {
 
 	class SourceLoc {
 	public:
@@ -30,7 +30,7 @@ namespace scope_timer::detail {
 		size_t line;
 	};
 
-	SCOPE_TIMER_UNUSED static std::ostream& operator<<(std::ostream& os, const SourceLoc& source_loc) {
+	CHARMONIUM_SCOPE_TIMER_UNUSED static std::ostream& operator<<(std::ostream& os, const SourceLoc& source_loc) {
 		return os
 			<< source_loc.get_file_name()
 			<< ':'
@@ -39,7 +39,9 @@ namespace scope_timer::detail {
 			<< source_loc.get_function_name();
 	}
 
-}; // namespace scope_timer::detail
+}; // namespace charmonium::scope_timer::detail
 
-#define SCOPE_TIMER_SOURCE_LOC() (scope_timer::detail::SourceLoc {__func__, __FILE__, __LINE__})
-#define SCOPE_TIMER_UNIQUE_NAME() SCOPE_TIMER_TOKENPASTE(__scope_timer__, __LINE__)
+#define CHARMONIUM_SCOPE_TIMER_SOURCE_LOC() \
+	(charmonium::scope_timer::detail::SourceLoc {__func__, __FILE__, __LINE__})
+#define CHARMONIUM_SCOPE_TIMER_UNIQUE_NAME() \
+	CHARMONIUM_SCOPE_TIMER_TOKENPASTE(__scope_timer__, __LINE__)

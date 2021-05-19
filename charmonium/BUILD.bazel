@@ -1,5 +1,5 @@
 cc_library(
     name = "scope_timer",
-    hdrs = glob(["*.hpp"]),
+    hdrs = ["scope_timer.hpp"] + list(glob(["scope_timer/*.hpp"])),
     visibility = ["//visibility:public"],
 )

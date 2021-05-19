@@ -1,22 +1,25 @@
-#include "include/scope_timer.hpp"
+#include "charmonium/scope_timer.hpp"
 #include <deque>
+#include <functional>
 #include <stdexcept>
 #include <thread>
 
+namespace ch_sc = charmonium::scope_timer;
+
 static int64_t exec_in_thread(const std::function<void()>& body) {
-	scope_timer::CpuNs start {0};
-	scope_timer::CpuNs stop  {0};
+	ch_sc::CpuNs start {0};
+	ch_sc::CpuNs stop  {0};
 	std::thread th {[&] {
-		scope_timer::detail::fence();
-		start = scope_timer::wall_now();
-		scope_timer::detail::fence();
+		ch_sc::detail::fence();
+		start = ch_sc::wall_now();
+		ch_sc::detail::fence();
 		body();
-		scope_timer::detail::fence();
-		stop = scope_timer::wall_now();
-		scope_timer::detail::fence();
+		ch_sc::detail::fence();
+		stop = ch_sc::wall_now();
+		ch_sc::detail::fence();
 	}};
 	th.join();
-	return scope_timer::detail::get_ns(stop - start);
+	return ch_sc::detail::get_ns(stop - start);
 }
 
 constexpr size_t PAYLOAD_ITERATIONS = 1024;
@@ -27,11 +30,11 @@ static void noop() {
 	}
 }
 
-class NoopCallback : public scope_timer::CallbackType {
+class NoopCallback : public ch_sc::CallbackType {
 public:
-	void thread_start(scope_timer::Thread&) override { noop(); }
-	void thread_in_situ(scope_timer::Thread&) override { noop(); }
-	void thread_stop(scope_timer::Thread&) override { noop(); }
+	void thread_start(ch_sc::Thread&) override { noop(); }
+	void thread_in_situ(ch_sc::Thread&) override { noop(); }
+	void thread_stop(ch_sc::Thread&) override { noop(); }
 };
 
 static void fn_no_timing() {
@@ -67,34 +70,34 @@ static int64_t rdtsc() {
  */
 static void check_wall() {
 	noop();
-	if (scope_timer::detail::use_fences) { scope_timer::detail::fence(); }
-	auto wall  = scope_timer::wall_now();
-	if (scope_timer::detail::use_fences) { scope_timer::detail::fence(); }
+	if (ch_sc::detail::use_fences) { ch_sc::detail::fence(); }
+	auto wall  = ch_sc::wall_now();
+	if (ch_sc::detail::use_fences) { ch_sc::detail::fence(); }
 	(void)(wall);
 }
 
 static void check_cpu() {
 	noop();
-	if (scope_timer::detail::use_fences) { scope_timer::detail::fence(); }
-	auto cpu  = scope_timer::cpu_now();
-	if (scope_timer::detail::use_fences) { scope_timer::detail::fence(); }
+	if (ch_sc::detail::use_fences) { ch_sc::detail::fence(); }
+	auto cpu  = ch_sc::cpu_now();
+	if (ch_sc::detail::use_fences) { ch_sc::detail::fence(); }
 	(void)(cpu);
 }
 
 static void check_tsc() {
 	noop();
-	if (scope_timer::detail::use_fences) { scope_timer::detail::fence(); }
+	if (ch_sc::detail::use_fences) { ch_sc::detail::fence(); }
 	auto tsc  = rdtsc();
-	if (scope_timer::detail::use_fences) { scope_timer::detail::fence(); }
+	if (ch_sc::detail::use_fences) { ch_sc::detail::fence(); }
 	(void)(tsc);
 }
 
 int main() {
 	constexpr int64_t TRIALS = 1024 * 32;
 
-	scope_timer::Process& process = scope_timer::get_process();
+	ch_sc::Process& process = ch_sc::get_process();
 
-	process.set_callback(std::unique_ptr<scope_timer::CallbackType>{new NoopCallback});
+	process.set_callback(std::unique_ptr<ch_sc::CallbackType>{new NoopCallback});
 
 	exec_in_thread([&] {
 		for (size_t i = 0; i < TRIALS; ++i) {

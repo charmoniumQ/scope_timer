@@ -14,4 +14,4 @@ jobs:
       with:
         nix_path: nixpkgs=channel:nixos-unstable
 
-    - run: nix-shell --pure --run "./test.sh"
+    - run: ./test.sh

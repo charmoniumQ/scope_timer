@@ -1,6 +1,6 @@
 #pragma once // NOLINT(llvm-header-guard)
 
-namespace cpu_timer::detail {
+namespace charmonium::scope_timer::detail {
 	/*
 			void serialize(std::ostream& os, ThreadId thread_id, myclock::WallTime process_start, const char* function_name) const {
 			// Emitting [start, (start-stop)] is fewer bytes in CSV than [start, stop].

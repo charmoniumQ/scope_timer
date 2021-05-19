@@ -4,7 +4,7 @@
 #include <system_error>
 #include <type_traits>
 
-namespace scope_timer::detail {
+namespace charmonium::scope_timer::detail {
 	/**
 	 * @brief Process-synchronized, monotonic wall time since process start.
 	 */

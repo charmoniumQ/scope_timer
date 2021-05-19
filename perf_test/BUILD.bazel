@@ -2,7 +2,7 @@ cc_test(
     name = "scope_timer_perf_test",
     srcs = glob(["*.cpp"]),
     deps = [
-        "//include:scope_timer",
+        "//charmonium:scope_timer",
     ],
     linkopts = ["-pthread"],
 )

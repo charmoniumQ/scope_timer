@@ -2,7 +2,7 @@
 
 #include <memory>
 
-namespace scope_timer::detail {
+namespace charmonium::scope_timer::detail {
 	// In C++17, consider using std::any
 	using TypeEraser = std::shared_ptr<void>;
 
@@ -11,4 +11,4 @@ namespace scope_timer::detail {
 	// Helper functions must be injected into scope_timer namespace
 	// directly so I will hold them in main instead.
 
-} // namespace scope_timer::detail
+} // namespace charmonium::scope_timer::detail
