@@ -43,6 +43,19 @@ Note that this callback _process-global_. You can include scope_timer in
 dynamically and statically linked libraries, and they will all feed into the
 same callback.
 
+You can also set attributes on a timer.
+
+```cpp
+{
+    SCOPE_TIMER(
+        .set_name("decompress data")
+    );
+
+   // Do comuptation
+   // ...
+}
+```
+
 See [`./example/main.cpp`][3] for more example usage.
 
 ### Motivation
